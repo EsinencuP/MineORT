@@ -9,6 +9,8 @@ import {
   revokeInvitation,
 } from "@/lib/access/store";
 import { requireStaff } from "@/lib/auth/guards";
+import { onMembershipApproved } from "@/lib/bridge/whitelist";
+import { db } from "@/lib/supabase-admin";
 import { messageFor } from "@/lib/access/messages";
 
 const str = (v: FormDataEntryValue | null) =>
@@ -76,12 +78,22 @@ export async function decideApplicationAction(formData: FormData) {
   const decision = str(formData.get("decision"));
   if (decision !== "approve" && decision !== "reject")
     redirect("/admin/applications?error=bad_decision");
-  return staffRun(["moderator", "admin"], "/admin/applications", (id) =>
-    decideApplication(
+  const applicationId = str(formData.get("application_id"));
+  return staffRun(["moderator", "admin"], "/admin/applications", async (id) => {
+    await decideApplication(
       id,
-      str(formData.get("application_id")),
+      applicationId,
       decision,
       str(formData.get("reason")) || null,
-    ),
-  );
+    );
+    if (decision === "approve") {
+      const { data } = await db()
+        .from("applications")
+        .select("user_id")
+        .eq("id", applicationId)
+        .single();
+      // The decision is already saved; if queuing fails, reconciliation re-queues it.
+      if (data) await onMembershipApproved(data.user_id).catch(() => undefined);
+    }
+  });
 }

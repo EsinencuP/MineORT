@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getAccessOverview } from "@/lib/access/store";
 import { requireUser } from "@/lib/auth/guards";
+import { getWhitelistState } from "@/lib/bridge/whitelist";
 import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { StatusBadge, type BadgeTone } from "@/components/ui/status-badge";
@@ -9,13 +10,26 @@ export const metadata: Metadata = { title: "Личный кабинет" };
 
 export default async function DashboardPage() {
   const user = await requireUser("/dashboard");
-  const o = await getAccessOverview(user.userId);
+  const [o, wl] = await Promise.all([
+    getAccessOverview(user.userId),
+    getWhitelistState(user.userId),
+  ]);
 
   let tone: BadgeTone = "neutral";
   let label = "Допуск не оформлен";
   if (o.membership?.status === "approved") {
-    tone = "ok";
-    label = "Допуск получен";
+    // "Ready" only when the game server confirmed the whitelist entry.
+    if (wl?.applied_state === "applied") {
+      tone = "ok";
+      label = "Доступ готов: можно подключаться";
+    } else if (wl?.applied_state === "failed") {
+      tone = "danger";
+      label =
+        "Допуск получен, но не применён на сервере. Администратор уведомлён";
+    } else {
+      tone = "warn";
+      label = "Допуск получен, применяется на сервере";
+    }
   } else if (o.membership?.status === "suspended") {
     tone = "danger";
     label = "Допуск приостановлен";

@@ -10,6 +10,7 @@ import {
   withdrawApplication,
 } from "@/lib/access/store";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { onMembershipApproved } from "@/lib/bridge/whitelist";
 import { safeReturnTo } from "@/lib/auth/session-policy";
 
 const str = (v: FormDataEntryValue | null) =>
@@ -51,9 +52,11 @@ export async function reserveNickAction(formData: FormData) {
 }
 
 export async function redeemInvitationAction(formData: FormData) {
-  return run(formData, "/start", "invite", (uid) =>
-    redeemInvitation(uid, str(formData.get("token"))),
-  );
+  return run(formData, "/start", "invite", async (uid) => {
+    await redeemInvitation(uid, str(formData.get("token")));
+    // The membership is already saved; if queuing fails, reconciliation re-queues it.
+    await onMembershipApproved(uid).catch(() => undefined);
+  });
 }
 
 export async function submitApplicationAction(formData: FormData) {

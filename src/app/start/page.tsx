@@ -8,6 +8,7 @@ import {
 } from "@/app/actions/access";
 import { getAccessOverview } from "@/lib/access/store";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { getWhitelistState } from "@/lib/bridge/whitelist";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
@@ -61,7 +62,10 @@ export default async function StartPage({ searchParams }: PageProps<"/start">) {
     );
   }
 
-  const o = await getAccessOverview(user.userId);
+  const [o, wl] = await Promise.all([
+    getAccessOverview(user.userId),
+    getWhitelistState(user.userId),
+  ]);
   const approved = o.membership?.status === "approved";
   const pending = o.application?.status === "pending";
 
@@ -122,8 +126,9 @@ export default async function StartPage({ searchParams }: PageProps<"/start">) {
       <Step n={4} title="Допуск на сервер" done={approved}>
         {approved ? (
           <p>
-            Допуск получен. Следующий шаг — подключение к серверу (подробности
-            появятся в «Как играть»).
+            {wl?.applied_state === "applied"
+              ? "Доступ готов: можно подключаться к серверу."
+              : "Допуск получен. Он применяется на сервере: статус «Доступ готов» появится, когда сервер подтвердит."}
           </p>
         ) : pending ? (
           <form

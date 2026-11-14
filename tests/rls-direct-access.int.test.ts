@@ -33,6 +33,26 @@ const tables: Record<string, Record<string, unknown>> = {
   invitations: { token_hash: "x", expires_at: "2030-01-01T00:00:00Z" },
   invitation_redemptions: { user_id: "00000000-0000-0000-0000-000000000000" },
   access_memberships: { status: "approved" },
+  bridge_servers: { name: "x" },
+  bridge_keys: {
+    key_id: "x",
+    server_id: "00000000-0000-0000-0000-000000000000",
+    slot: "A",
+    secret_enc: "x",
+  },
+  bridge_nonces: { key_id: "x", nonce: "x" },
+  whitelist_entries: { nickname: "abc" },
+  server_actions: {
+    id: "00000000-0000-0000-0000-000000000000",
+    type: "whitelist.add",
+  },
+  server_action_attempts: {
+    action_id: "00000000-0000-0000-0000-000000000000",
+    attempt: 1,
+    status: "x",
+  },
+  server_events: { type: "x" },
+  whitelist_drift: { nickname: "abc" },
 };
 
 // SECURITY DEFINER helpers must not be callable by client roles.
@@ -56,6 +76,17 @@ const rpcs: Record<string, Record<string, unknown>> = {
     p_application: "00000000-0000-0000-0000-000000000000",
     p_decision: "approve",
     p_reason: "x",
+  },
+  claim_nonce: { p_key_id: "x", p_nonce: "x" },
+  lease_actions: { p_server: "00000000-0000-0000-0000-000000000000", p_max: 5 },
+  record_action_result: {
+    p_server: "00000000-0000-0000-0000-000000000000",
+    p_action: "00000000-0000-0000-0000-000000000000",
+    p_attempt: 1,
+    p_status: "succeeded",
+    p_retryable: false,
+    p_error: null,
+    p_detail: null,
   },
   write_audit: {
     p_actor: "00000000-0000-0000-0000-000000000000",
