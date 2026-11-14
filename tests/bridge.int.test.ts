@@ -554,6 +554,99 @@ describe.skipIf(!enabled)("Bridge API v1 (staging)", () => {
       });
     });
 
+    it("a result updates the entry of the action's user, not another user with the same nickname", async () => {
+      const n = nick();
+      const user = await approvedUser(n);
+      const other = await approvedUser(nick());
+      await db().from("whitelist_entries").insert({
+        user_id: other,
+        nickname: n.toLowerCase(),
+        desired: "on",
+        applied_state: "pending",
+      });
+      await onMembershipApproved(user);
+      const act = (await leaseAll()).find((x) => x.args.nickname === n)!;
+      await report(act.action_id, {
+        attempt: act.attempt,
+        status: "succeeded",
+      });
+      expect((await getWhitelistState(user))?.applied_state).toBe("applied");
+      expect((await getWhitelistState(other))?.applied_state).toBe("pending");
+    });
+
+    it("applied needs every server to finish its whitelist.add", async () => {
+      const second = await createBridgeServer(
+        "it2-" + randomUUID().slice(0, 8),
+      );
+      const keyTwo = await issueBridgeKey(second, "A");
+      try {
+        const n = nick();
+        const user = await approvedUser(n);
+        await onMembershipApproved(user);
+        const first = (await leaseAll()).find((x) => x.args.nickname === n)!;
+        await report(first.action_id, {
+          attempt: first.attempt,
+          status: "succeeded",
+        });
+        expect((await getWhitelistState(user))?.applied_state).toBe("pending"); // the other server has not confirmed
+
+        const other = (await leaseAll(keyTwo)).find(
+          (x) => x.args.nickname === n,
+        )!;
+        await report(
+          other.action_id,
+          { attempt: other.attempt, status: "succeeded" },
+          keyTwo,
+        );
+        expect((await getWhitelistState(user))?.applied_state).toBe("applied");
+      } finally {
+        const { data: acts } = await db()
+          .from("server_actions")
+          .select("id")
+          .eq("server_id", second);
+        const ids = (acts ?? []).map((x) => x.id);
+        if (ids.length)
+          await db()
+            .from("server_action_attempts")
+            .delete()
+            .in("action_id", ids);
+        await db().from("server_actions").delete().eq("server_id", second);
+        await db().from("bridge_keys").delete().eq("server_id", second);
+        await db().from("bridge_servers").delete().eq("id", second);
+      }
+    });
+
+    it("a changed nickname takes the old one off the server", async () => {
+      const oldNick = nick();
+      const user = await approvedUser(oldNick);
+      await db().from("whitelist_entries").insert({
+        user_id: user,
+        nickname: oldNick,
+        desired: "on",
+        applied_state: "applied",
+      });
+      const newNick = nick();
+      await db()
+        .from("minecraft_identities")
+        .update({ nickname: newNick })
+        .eq("user_id", user); // an admin-driven change
+      await onMembershipApproved(user);
+      const { data } = await db()
+        .from("server_actions")
+        .select("type, args")
+        .eq("user_id", user)
+        .eq("server_id", serverId);
+      const kinds = (data ?? [])
+        .map((a) => `${a.type}:${(a.args as { nickname: string }).nickname}`)
+        .sort();
+      expect(kinds).toEqual(
+        [`whitelist.add:${newNick}`, `whitelist.remove:${oldNick}`].sort(),
+      );
+      expect(await getWhitelistState(user)).toMatchObject({
+        applied_state: "pending",
+      });
+    });
+
     it("with the server offline the action stays pending", async () => {
       const user = await approvedUser(nick());
       await onMembershipApproved(user);

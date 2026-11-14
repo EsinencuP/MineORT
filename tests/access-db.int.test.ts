@@ -159,6 +159,17 @@ describe.skipIf(!enabled)("access rules (staging)", () => {
       expect(await code(reserveNickname(b, n))).toBe("ok");
     });
 
+    it("after admission the nickname cannot be changed by the user", async () => {
+      const a = await makeUser();
+      await reserveNickname(a, nick());
+      await db().from("access_memberships").insert({
+        user_id: a,
+        status: "approved",
+        decided_at: new Date().toISOString(),
+      });
+      expect(await code(reserveNickname(a, nick()))).toBe("nick_locked");
+    });
+
     it("a confirmed nickname cannot be changed by the user", async () => {
       const a = await makeUser();
       const id = await reserveNickname(a, nick());

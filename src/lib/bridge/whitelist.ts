@@ -57,20 +57,41 @@ export async function onMembershipApproved(userId: string) {
     return { queued: 0 };
 
   const nickname = identity.nickname as string;
-  const { error } = await db().from("whitelist_entries").upsert(
-    {
-      user_id: userId,
-      nickname,
-      desired: "on",
-      applied_state: "pending",
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
+  const { data: existing } = await db()
+    .from("whitelist_entries")
+    .select("nickname")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const stale =
+    existing && existing.nickname.toLowerCase() !== nickname.toLowerCase()
+      ? (existing.nickname as string)
+      : null;
+
+  const { error } = await db()
+    .from("whitelist_entries")
+    .upsert(
+      {
+        user_id: userId,
+        nickname,
+        desired: "on",
+        applied_state: "pending",
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
   fail(error, "whitelist_entries upsert");
 
   let queued = 0;
   for (const serverId of await allServers()) {
+    // The entry used to point at another nickname: take that one off the server first.
+    if (stale && !(await hasOpenAction(serverId, "whitelist.remove", stale))) {
+      await enqueueAction({
+        serverId,
+        userId,
+        type: "whitelist.remove",
+        args: { nickname: stale },
+      });
+    }
     if (await hasOpenAction(serverId, "whitelist.remove", nickname)) continue; // revocation wins
     if (await hasOpenAction(serverId, "whitelist.add", nickname)) continue;
     await enqueueAction({
