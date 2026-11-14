@@ -26,12 +26,42 @@ const tables: Record<string, Record<string, unknown>> = {
   },
   rate_limit_counters: { key: "x", window_start: "2030-01-01T00:00:00Z" },
   test_login_tokens: { jti: "x" },
+  rules_versions: { version_major: 1, version_minor: 0, body: "x" },
+  rules_acceptances: { user_id: "00000000-0000-0000-0000-000000000000" },
+  minecraft_identities: { nickname: "abc" },
+  applications: { text: "x" },
+  invitations: { token_hash: "x", expires_at: "2030-01-01T00:00:00Z" },
+  invitation_redemptions: { user_id: "00000000-0000-0000-0000-000000000000" },
+  access_memberships: { status: "approved" },
 };
 
 // SECURITY DEFINER helpers must not be callable by client roles.
 const rpcs: Record<string, Record<string, unknown>> = {
   hit_rate_limit: { p_key: "x", p_window_seconds: 60, p_limit: 1 },
   consume_login_state: { p_state_hash: "x" },
+  accept_rules: {
+    p_user: "00000000-0000-0000-0000-000000000000",
+    p_version: "00000000-0000-0000-0000-000000000000",
+  },
+  reserve_nickname: {
+    p_user: "00000000-0000-0000-0000-000000000000",
+    p_nick: "abc",
+  },
+  redeem_invitation: {
+    p_user: "00000000-0000-0000-0000-000000000000",
+    p_token_hash: "x",
+  },
+  decide_application: {
+    p_actor: "00000000-0000-0000-0000-000000000000",
+    p_application: "00000000-0000-0000-0000-000000000000",
+    p_decision: "approve",
+    p_reason: "x",
+  },
+  write_audit: {
+    p_actor: "00000000-0000-0000-0000-000000000000",
+    p_action: "x",
+    p_details: {},
+  },
   upsert_telegram_user: {
     p_telegram_id: 1,
     p_username: "x",
