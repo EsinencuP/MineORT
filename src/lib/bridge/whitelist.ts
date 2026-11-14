@@ -24,6 +24,26 @@ async function hasOpenAction(serverId: string, type: string, nickname: string) {
   );
 }
 
+/** True when somebody other than `userId` holds the nickname (active identity or desired-on entry). */
+async function heldByAnotherUser(userId: string, nickname: string) {
+  const lower = nickname.toLowerCase();
+  const [{ data: ids }, { data: wl }] = await Promise.all([
+    db()
+      .from("minecraft_identities")
+      .select("user_id, nickname")
+      .neq("user_id", userId)
+      .in("binding_status", ["reserved", "confirmed"]),
+    db()
+      .from("whitelist_entries")
+      .select("user_id, nickname")
+      .neq("user_id", userId)
+      .eq("desired", "on"),
+  ]);
+  return [...(ids ?? []), ...(wl ?? [])].some(
+    (r) => String(r.nickname).toLowerCase() === lower,
+  );
+}
+
 async function allServers() {
   const { data, error } = await db().from("bridge_servers").select("id");
   fail(error, "bridge_servers select");
@@ -62,23 +82,23 @@ export async function onMembershipApproved(userId: string) {
     .select("nickname")
     .eq("user_id", userId)
     .maybeSingle();
-  const stale =
+  let stale =
     existing && existing.nickname.toLowerCase() !== nickname.toLowerCase()
       ? (existing.nickname as string)
       : null;
+  // Never take a nickname off the server if it now belongs to somebody else.
+  if (stale && (await heldByAnotherUser(userId, stale))) stale = null;
 
-  const { error } = await db()
-    .from("whitelist_entries")
-    .upsert(
-      {
-        user_id: userId,
-        nickname,
-        desired: "on",
-        applied_state: "pending",
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    );
+  const { error } = await db().from("whitelist_entries").upsert(
+    {
+      user_id: userId,
+      nickname,
+      desired: "on",
+      applied_state: "pending",
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
   fail(error, "whitelist_entries upsert");
 
   let queued = 0;

@@ -647,6 +647,35 @@ describe.skipIf(!enabled)("Bridge API v1 (staging)", () => {
       });
     });
 
+    it("an old nickname that now belongs to someone else is not removed", async () => {
+      const oldNick = nick();
+      const user = await approvedUser(oldNick);
+      await db()
+        .from("whitelist_entries")
+        .insert({
+          user_id: user,
+          nickname: oldNick,
+          desired: "on",
+          applied_state: "applied",
+        });
+      await db()
+        .from("minecraft_identities")
+        .update({ binding_status: "released" })
+        .eq("user_id", user);
+      await db()
+        .from("minecraft_identities")
+        .insert({ user_id: user, nickname: nick() });
+      const newOwner = await approvedUser(oldNick); // the nickname was re-issued to another player
+      await onMembershipApproved(user);
+      const { data } = await db()
+        .from("server_actions")
+        .select("type, args")
+        .eq("server_id", serverId)
+        .in("user_id", [user, newOwner])
+        .eq("type", "whitelist.remove");
+      expect(data ?? []).toHaveLength(0);
+    });
+
     it("with the server offline the action stays pending", async () => {
       const user = await approvedUser(nick());
       await onMembershipApproved(user);
