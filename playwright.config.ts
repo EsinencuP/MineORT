@@ -39,6 +39,8 @@ export default defineConfig({
           TEST_LOGIN_ENABLED: process.env.TEST_LOGIN_ENABLED ?? "",
           TEST_LOGIN_SECRET: process.env.TEST_LOGIN_SECRET ?? "",
           FF_P1A: process.env.FF_P1A ?? "",
+          FF_P1B: process.env.FF_P1B ?? "",
+          FF_P1B_SOCIAL: process.env.FF_P1B_SOCIAL ?? "",
         },
         timeout: 180_000,
       },

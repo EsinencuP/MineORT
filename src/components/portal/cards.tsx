@@ -164,6 +164,8 @@ export type EventCardProps = {
   joined: boolean;
   coverSrc: string;
   timeZone?: string;
+  /** Where the button leads (the calendar entry); defaults to the dashboard in design previews. */
+  href?: string;
 };
 
 export function formatWhen(iso: string, timeZone = "Europe/Chisinau") {
@@ -191,6 +193,7 @@ export function EventCard({
   joined,
   coverSrc,
   timeZone,
+  href = "/dashboard",
 }: EventCardProps) {
   return (
     <Card aria-label="Ближайшее событие" className="overflow-hidden p-0 sm:p-0">
@@ -221,7 +224,7 @@ export function EventCard({
             {joined ? (
               <StatusBadge tone="ok">Ты участвуешь</StatusBadge>
             ) : (
-              <ButtonLink href="/dashboard" className="min-h-11 px-5 text-sm">
+              <ButtonLink href={href} className="min-h-11 px-5 text-sm">
                 Участвовать
               </ButtonLink>
             )}
@@ -289,6 +292,7 @@ export type VoteCardProps = {
   endsAt: string;
   voted: boolean;
   participants: number;
+  href?: string;
 };
 
 export function VoteCard({
@@ -296,6 +300,7 @@ export function VoteCard({
   endsAt,
   voted,
   participants,
+  href = "/dashboard",
 }: VoteCardProps) {
   return (
     <Card
@@ -311,7 +316,7 @@ export function VoteCard({
         {voted ? (
           <StatusBadge tone="ok">Твой голос учтён</StatusBadge>
         ) : (
-          <ButtonLink href="/dashboard" className="min-h-11 px-5 text-sm">
+          <ButtonLink href={href} className="min-h-11 px-5 text-sm">
             Проголосовать
           </ButtonLink>
         )}

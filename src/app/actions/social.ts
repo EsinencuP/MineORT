@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { requireFlag } from "@/lib/flags";
+import { requireFlag, type FlagName } from "@/lib/flags";
 import { safeReturnTo } from "@/lib/auth/session-policy";
 import { SocialError } from "@/lib/social/errors";
 import {
@@ -17,6 +17,14 @@ import {
   setPinned,
   toggleLike,
 } from "@/lib/social/store";
+import {
+  cancelEvent,
+  createEvent,
+  joinEvent,
+  leaveEvent,
+  rescheduleEvent,
+} from "@/lib/social/events";
+import { castVote, closePoll, createPoll } from "@/lib/social/polls";
 import { getViewer, type Viewer } from "@/lib/social/viewer";
 
 const str = (v: FormDataEntryValue | null) =>
@@ -35,8 +43,9 @@ async function run(
   fallback: string,
   okKey: string,
   fn: (viewer: Viewer) => Promise<unknown>,
+  flag: FlagName = "ff_p1a",
 ): Promise<never> {
-  await requireFlag("ff_p1a");
+  await requireFlag(flag);
   const back = safeReturnTo(str(formData.get("return_to")) || fallback);
   const viewer = await getViewer();
   if (!viewer.userId)
@@ -143,5 +152,127 @@ export async function decideReportAction(formData: FormData) {
       decision,
       str(formData.get("note")),
     ),
+  );
+}
+
+/* ---------------- polls and events (wave P1b) ---------------- */
+const P1B: FlagName = "ff_p1b_social";
+const num = (v: FormDataEntryValue | null) => {
+  const n = Number.parseInt(str(v), 10);
+  return Number.isFinite(n) ? n : null;
+};
+
+export async function createPollAction(formData: FormData) {
+  return run(
+    formData,
+    "/social/polls",
+    "created",
+    (viewer) =>
+      createPoll(viewer, {
+        question: str(formData.get("question")),
+        options: strs(formData, "option"),
+        closesAt: str(formData.get("closes_at")),
+        multiChoice: formData.get("multi") === "on",
+        maxChoices: num(formData.get("max_choices")),
+        allowChange: formData.get("allow_change") === "on",
+        resultsAfterClose: formData.get("results") === "after_close",
+      }),
+    P1B,
+  );
+}
+
+export async function castVoteAction(formData: FormData) {
+  return run(
+    formData,
+    "/social/polls",
+    formData.get("change") === "1" ? "changed" : "voted",
+    (viewer) =>
+      castVote(
+        viewer,
+        str(formData.get("poll_id")),
+        strs(formData, "choice"),
+        formData.get("change") === "1",
+      ),
+    P1B,
+  );
+}
+
+export async function closePollAction(formData: FormData) {
+  return run(
+    formData,
+    "/social/polls",
+    "closed",
+    (viewer) => closePoll(viewer, str(formData.get("poll_id"))),
+    P1B,
+  );
+}
+
+export async function createEventAction(formData: FormData) {
+  return run(
+    formData,
+    "/social/calendar",
+    "created",
+    (viewer) =>
+      createEvent(viewer, {
+        title: str(formData.get("title")),
+        description: str(formData.get("description")),
+        startsAt: str(formData.get("starts_at")),
+        tz: str(formData.get("tz")),
+        durationMinutes: num(formData.get("duration")) ?? 60,
+        place: str(formData.get("place")),
+        category: str(formData.get("category")),
+        seatsLimit: num(formData.get("seats")),
+      }),
+    P1B,
+  );
+}
+
+export async function joinEventAction(formData: FormData) {
+  return run(
+    formData,
+    "/social/calendar",
+    "joined",
+    (viewer) => joinEvent(viewer, str(formData.get("event_id"))),
+    P1B,
+  );
+}
+
+export async function leaveEventAction(formData: FormData) {
+  return run(
+    formData,
+    "/social/calendar",
+    "left",
+    (viewer) => leaveEvent(viewer, str(formData.get("event_id"))),
+    P1B,
+  );
+}
+
+export async function rescheduleEventAction(formData: FormData) {
+  return run(
+    formData,
+    "/social/calendar",
+    "rescheduled",
+    (viewer) =>
+      rescheduleEvent(
+        viewer,
+        str(formData.get("event_id")),
+        str(formData.get("starts_at")),
+      ),
+    P1B,
+  );
+}
+
+export async function cancelEventAction(formData: FormData) {
+  return run(
+    formData,
+    "/social/calendar",
+    "cancelled",
+    (viewer) =>
+      cancelEvent(
+        viewer,
+        str(formData.get("event_id")),
+        str(formData.get("reason")),
+      ),
+    P1B,
   );
 }

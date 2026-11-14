@@ -15,7 +15,10 @@ import { getStageForUser } from "@/lib/onboarding/server";
 import { safely } from "@/lib/safe";
 import { isEnabled } from "@/lib/flags";
 import { getPublicServerInfo } from "@/lib/site/server-status";
+import { nextEvent } from "@/lib/social/events";
+import { nextOpenPoll } from "@/lib/social/polls";
 import { latestNews } from "@/lib/social/store";
+import { getViewer } from "@/lib/social/viewer";
 import { DashboardView } from "@/components/portal/dashboard-view";
 import { portalItems } from "@/components/portal/portal-nav";
 import { Notice } from "@/components/ui/notice";
@@ -28,6 +31,14 @@ export default async function DashboardPage({
 }: PageProps<"/dashboard">) {
   const user = await requireUser("/dashboard");
   const sp = await searchParams;
+  const social = isEnabled("ff_p1b_social");
+  const viewer = social ? await getViewer() : null;
+  const event = viewer
+    ? await safely("dashboard event", () => nextEvent(viewer), null)
+    : null;
+  const poll = social
+    ? await safely("dashboard poll", () => nextOpenPoll(user.userId), null)
+    : null;
   const news = isEnabled("ff_p1a")
     ? await safely("dashboard news", () => latestNews(4), [])
     : [];
@@ -80,9 +91,21 @@ export default async function DashboardPage({
         }}
         canConnect={canConnect}
         stats={{}}
-        event={null}
+        event={
+          event
+            ? {
+                title: event.title,
+                startsAt: event.startsAt,
+                place: event.place || "Место уточняется",
+                participants: event.attendees,
+                joined: event.joined,
+                coverSrc: "/art/house.svg",
+                href: `/social/calendar#e-${event.id}`,
+              }
+            : null
+        }
         projects={[]}
-        vote={null}
+        vote={poll ? { ...poll, href: "/social/polls" } : null}
         feed={news.map((n) => ({
           kind: "Новость",
           title: n.body.length > 90 ? `${n.body.slice(0, 90)}…` : n.body,
