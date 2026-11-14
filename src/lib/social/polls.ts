@@ -235,11 +235,11 @@ export async function closePoll(viewer: Viewer, pollId: string) {
   });
 }
 
-/** The open poll that ends first, for the dashboard card. */
+/** The open poll that ends first, for the dashboard card (same result rules as the poll list). */
 export async function nextOpenPoll(userId: string) {
   const { data } = await db()
     .from("polls")
-    .select("id, question, closes_at")
+    .select("id, question, closes_at, results_after_close")
     .is("closed_at", null)
     .gt("closes_at", new Date().toISOString())
     .order("closes_at")
@@ -251,10 +251,13 @@ export async function nextOpenPoll(userId: string) {
     .select("user_id")
     .eq("poll_id", data.id);
   const voters = new Set((votes ?? []).map((v) => v.user_id as string));
+  const voted = voters.has(userId);
+  // the number of participants is a result too: hidden until the end when the poll says so
+  const showCount = !data.results_after_close && voted;
   return {
     question: data.question as string,
     endsAt: data.closes_at as string,
-    voted: voters.has(userId),
-    participants: voters.size,
+    voted,
+    participants: showCount ? voters.size : null,
   };
 }

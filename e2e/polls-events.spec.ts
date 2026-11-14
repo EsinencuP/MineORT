@@ -284,6 +284,13 @@ test("results stay hidden until the end when asked; a vote can be changed atomic
     pollCard(bob, `Скрытые итоги ${TAG}`).getByText("100%"),
   ).toHaveCount(0);
 
+  // the dashboard card must not leak the hidden count either
+  await bob.goto("/dashboard");
+  const dash = bob.getByLabel("Активное голосование");
+  await expect(dash).toContainText(`Скрытые итоги ${TAG}`);
+  await expect(dash).not.toContainText("Проголосовали");
+  await bob.goto("/social/polls");
+
   await pollCard(bob, `Скрытые итоги ${TAG}`)
     .getByText("Изменить голос", { exact: true })
     .first()

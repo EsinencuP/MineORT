@@ -291,7 +291,8 @@ export type VoteCardProps = {
   question: string;
   endsAt: string;
   voted: boolean;
-  participants: number;
+  /** null when the poll hides its results until the end. */
+  participants: number | null;
   href?: string;
 };
 
@@ -310,7 +311,8 @@ export function VoteCard({
       <p className="eyebrow">Голосование</p>
       <h3 className="font-pixel text-xl leading-snug">{question}</h3>
       <p className="text-ink-muted text-sm">
-        Проголосовали: {participants} · до конца: <Countdown target={endsAt} />
+        {participants !== null && <>Проголосовали: {participants} · </>}
+        до конца: <Countdown target={endsAt} />
       </p>
       <div className="mt-auto">
         {voted ? (

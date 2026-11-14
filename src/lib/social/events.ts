@@ -281,7 +281,7 @@ export async function cancelEvent(
   reason: string,
 ) {
   const { own } = await manageable(viewer, eventId);
-  const text = reason.trim();
+  const text = reason.trim().slice(0, 500);
   if (!own && text.length < 3) throw new SocialError("reason_too_short");
   await db()
     .from("events")
