@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { acceptRulesAction } from "@/app/actions/access";
 import { currentRules, hasAcceptedCurrentRules } from "@/lib/access/store";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { safely } from "@/lib/safe";
 import { safeReturnTo } from "@/lib/auth/session-policy";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,11 +10,16 @@ import { Notice } from "@/components/ui/notice";
 import { EmptyState } from "@/components/ui/states";
 import { StatusBadge } from "@/components/ui/status-badge";
 
+export const dynamic = "force-dynamic"; // reads the session and live data on every request
+
 export const metadata: Metadata = { title: "Правила сервера" };
 
 export default async function RulesPage({ searchParams }: PageProps<"/rules">) {
   const sp = await searchParams;
-  const [rules, user] = await Promise.all([currentRules(), getCurrentUser()]);
+  const [rules, user] = await Promise.all([
+    safely("rules", currentRules, null),
+    safely("session", getCurrentUser, null),
+  ]);
   const accepted =
     user && rules ? await hasAcceptedCurrentRules(user.userId) : false;
   const returnTo = safeReturnTo(

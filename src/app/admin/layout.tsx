@@ -10,6 +10,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
       ? [
           { href: "/admin/invitations", label: "Приглашения" },
           { href: "/admin/rules", label: "Правила" },
+          { href: "/admin/guides", label: "Гайдбук" },
           { href: "/admin/audit", label: "Аудит" },
         ]
       : []),

@@ -46,13 +46,13 @@ export async function acceptRulesAction(formData: FormData) {
 }
 
 export async function reserveNickAction(formData: FormData) {
-  return run(formData, "/start", "nick", (uid) =>
+  return run(formData, "/onboarding/minecraft", "nick", (uid) =>
     reserveNickname(uid, str(formData.get("nick"))),
   );
 }
 
 export async function redeemInvitationAction(formData: FormData) {
-  return run(formData, "/start", "invite", async (uid) => {
+  return run(formData, "/onboarding/minecraft", "invite", async (uid) => {
     await redeemInvitation(uid, str(formData.get("token")));
     // The membership is already saved; if queuing fails, reconciliation re-queues it.
     await onMembershipApproved(uid).catch(() => undefined);
@@ -60,13 +60,13 @@ export async function redeemInvitationAction(formData: FormData) {
 }
 
 export async function submitApplicationAction(formData: FormData) {
-  return run(formData, "/start", "applied", (uid) =>
+  return run(formData, "/onboarding/minecraft", "applied", (uid) =>
     submitApplication(uid, str(formData.get("text")).slice(0, 1000) || null),
   );
 }
 
 export async function withdrawApplicationAction(formData: FormData) {
-  return run(formData, "/start", "withdrawn", (uid) =>
+  return run(formData, "/onboarding/minecraft", "withdrawn", (uid) =>
     withdrawApplication(uid),
   );
 }

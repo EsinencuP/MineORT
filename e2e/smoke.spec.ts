@@ -36,15 +36,19 @@ test("flagged routes are 404 when waves are off", async ({ request }) => {
   }
 });
 
-test("no horizontal scroll at 320 px", async ({ page }, info) => {
+test("no horizontal scroll at 320 px on public pages", async ({
+  page,
+}, info) => {
   test.skip(info.project.name !== "mobile-320");
-  await page.goto("/");
-  const overflow = await page.evaluate(
-    () =>
-      document.documentElement.scrollWidth -
-      document.documentElement.clientWidth,
-  );
-  expect(overflow).toBe(0);
+  for (const path of ["/", "/start", "/guide", "/rules", "/login"]) {
+    await page.goto(path);
+    const overflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    );
+    expect(overflow, path).toBe(0);
+  }
 });
 
 test("menu hides unavailable items and has no dead links", async ({

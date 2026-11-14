@@ -134,7 +134,10 @@ test("a player applies and a moderator decision gives access", async ({
   browser,
 }) => {
   const carol = await asUser(browser, "carol");
-  await carol.goto("/start");
+  await carol.goto("/rules");
+  const accept = carol.getByRole("button", { name: "Принимаю правила" });
+  if (await accept.isVisible()) await accept.click();
+  await carol.goto("/onboarding/minecraft");
   await carol.getByLabel("Ник", { exact: true }).fill("ab");
   await carol.getByRole("button", { name: "Сохранить ник" }).click();
   await expect(
@@ -159,7 +162,7 @@ test("a player applies and a moderator decision gives access", async ({
   await card.getByRole("button", { name: "Отклонить" }).click();
   await expect(admin.getByText("Решение сохранено.")).toBeVisible();
 
-  await carol.goto("/start");
+  await carol.goto("/onboarding/minecraft");
   await expect(carol.getByText("Причина: Мало информации")).toBeVisible();
 
   // within 7 days a new application is refused
@@ -180,7 +183,7 @@ test("a player applies and a moderator decision gives access", async ({
     .from("applications")
     .update({ decided_at: new Date(Date.now() - 8 * 86_400_000).toISOString() })
     .eq("user_id", id);
-  await carol.goto("/start");
+  await carol.goto("/onboarding/minecraft");
   await carol.getByRole("button", { name: "Подать заявку" }).click();
   await admin.goto("/admin/applications");
   await admin
