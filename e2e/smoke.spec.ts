@@ -32,6 +32,7 @@ test("admin area is closed to guests", async ({ request }) => {
 });
 
 test("flagged routes are 404 when waves are off", async ({ request }) => {
+  test.skip(process.env.FF_P1A === "true", "wave P1a is switched on");
   for (const path of ["/social", "/players", "/map", "/social/polls"]) {
     const res = await request.get(path);
     expect(res.status(), path).toBe(404);

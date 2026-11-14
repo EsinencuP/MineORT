@@ -38,6 +38,7 @@ export default defineConfig({
           APP_ENV: "local",
           TEST_LOGIN_ENABLED: process.env.TEST_LOGIN_ENABLED ?? "",
           TEST_LOGIN_SECRET: process.env.TEST_LOGIN_SECRET ?? "",
+          FF_P1A: process.env.FF_P1A ?? "",
         },
         timeout: 180_000,
       },

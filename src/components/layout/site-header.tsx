@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { connection } from "next/server";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import { visibleMenu } from "@/lib/menu";
 import { ButtonLink } from "@/components/ui/button";
 import { ArrowUpRight } from "@/components/ui/icons";
@@ -31,6 +32,7 @@ export function BrandMark() {
 export async function SiteHeader() {
   await connection();
   const items = visibleMenu();
+  const user = await getCurrentUser().catch(() => null);
 
   return (
     <header className="relative z-20">
@@ -77,11 +79,11 @@ export async function SiteHeader() {
             </ButtonLink>
           </div>
           <ButtonLink
-            href="/login"
+            href={user ? "/dashboard" : "/login"}
             variant="secondary"
             className="min-h-11 px-3.5 text-sm"
           >
-            Войти
+            {user ? "Кабинет" : "Войти"}
           </ButtonLink>
           <MobileNav items={items} />
         </div>

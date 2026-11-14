@@ -13,7 +13,9 @@ import { getSettings } from "@/lib/guides/store";
 import { CAN_CONNECT } from "@/lib/onboarding/stage";
 import { getStageForUser } from "@/lib/onboarding/server";
 import { safely } from "@/lib/safe";
+import { isEnabled } from "@/lib/flags";
 import { getPublicServerInfo } from "@/lib/site/server-status";
+import { latestNews } from "@/lib/social/store";
 import { DashboardView } from "@/components/portal/dashboard-view";
 import { portalItems } from "@/components/portal/portal-nav";
 import { Notice } from "@/components/ui/notice";
@@ -26,6 +28,9 @@ export default async function DashboardPage({
 }: PageProps<"/dashboard">) {
   const user = await requireUser("/dashboard");
   const sp = await searchParams;
+  const news = isEnabled("ff_p1a")
+    ? await safely("dashboard news", () => latestNews(4), [])
+    : [];
   const [o, wl, tg, settings, st, info] = await Promise.all([
     getAccessOverview(user.userId),
     getWhitelistState(user.userId),
@@ -78,7 +83,12 @@ export default async function DashboardPage({
         event={null}
         projects={[]}
         vote={null}
-        feed={[]}
+        feed={news.map((n) => ({
+          kind: "Новость",
+          title: n.body.length > 90 ? `${n.body.slice(0, 90)}…` : n.body,
+          when: new Date(n.created_at).toLocaleDateString("ru-RU"),
+          href: "/social?f=news",
+        }))}
         botConnected={false}
         canInvite={user.site_role === "admin"}
         supportContact={settings.support_contact || null}
