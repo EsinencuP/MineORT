@@ -1,6 +1,6 @@
 // Idempotent seed of E2E fixture users. Usage: npm run seed:test (needs service key in env).
 import { createClient } from "@supabase/supabase-js";
-import { TEST_USERS } from "../src/lib/auth/test-login";
+import { TEST_USERS } from "../src/lib/auth/test-login.ts";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
