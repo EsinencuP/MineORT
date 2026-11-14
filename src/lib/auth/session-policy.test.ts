@@ -55,6 +55,9 @@ describe("session policy", () => {
     expect(safeReturnTo("/players?tab=guilds")).toBe("/players?tab=guilds");
     for (const bad of [
       "//evil.test",
+      "/\t/evil.test",
+      "/\n/evil.test",
+      "/\r/evil.test",
       "https://evil.test",
       "/\\evil",
       "javascript:1",

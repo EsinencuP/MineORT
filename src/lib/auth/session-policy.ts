@@ -5,6 +5,8 @@ export const STEP_UP_TTL_MS = 15 * 60 * 1000;
 export const LOGIN_STATE_TTL_MS = 10 * 60 * 1000;
 
 export const SESSION_COOKIE = "mo_session";
+/** Binds a login attempt to the browser that started it (login CSRF protection). */
+export const LOGIN_STATE_COOKIE = "mo_login_state";
 
 export type SessionRow = {
   expires_at: string;
@@ -41,13 +43,16 @@ export function cookieOptions(
 
 /** Only same-site relative paths are allowed as post-login targets (no open redirect). */
 export function safeReturnTo(value: string | null | undefined): string {
-  if (
-    !value ||
-    !value.startsWith("/") ||
-    value.startsWith("//") ||
-    value.includes("\\")
-  ) {
-    return "/dashboard";
+  const fallback = "/dashboard";
+  // Browsers strip tabs and newlines inside URLs, so "/<TAB>/evil.test" would become "//evil.test".
+  if (!value || /[\u0000-\u001f\u007f\u005c]/.test(value)) return fallback;
+  if (!value.startsWith("/") || value.startsWith("//")) return fallback;
+  const probe = "https://placeholder.invalid";
+  try {
+    const u = new URL(value, probe);
+    if (u.origin !== probe) return fallback;
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return fallback;
   }
-  return value;
 }

@@ -1,4 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
+import {
+  LOGIN_STATE_COOKIE,
+  LOGIN_STATE_TTL_MS,
+  cookieOptions,
+} from "@/lib/auth/session-policy";
 import { buildAuthorizationUrl } from "@/lib/auth/telegram-oidc";
 import { clientIp, createLoginState, withinRateLimit } from "@/lib/auth/store";
 
@@ -20,7 +25,7 @@ export async function GET(req: NextRequest) {
   const { state, nonce, codeChallenge } = await createLoginState(
     req.nextUrl.searchParams.get("return_to"),
   );
-  return NextResponse.redirect(
+  const res = NextResponse.redirect(
     buildAuthorizationUrl({
       botId,
       redirectUri: `${appUrl}/api/auth/telegram/callback`,
@@ -29,4 +34,10 @@ export async function GET(req: NextRequest) {
       codeChallenge,
     }),
   );
+  res.cookies.set(
+    LOGIN_STATE_COOKIE,
+    state,
+    cookieOptions(new Date(Date.now() + LOGIN_STATE_TTL_MS)),
+  );
+  return res;
 }
