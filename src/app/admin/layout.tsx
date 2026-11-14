@@ -2,18 +2,21 @@ import Link from "next/link";
 import { requireStaff } from "@/lib/auth/guards";
 
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
-  const user = await requireStaff();
+  // The layout must not redirect to /admin/security itself (that page lives under it): each page checks TOTP.
+  const user = await requireStaff(undefined, { allowWithoutTotp: true });
   const isAdmin = user.site_role === "admin";
   const links = [
     { href: "/admin/applications", label: "Заявки" },
     ...(isAdmin
       ? [
+          { href: "/admin/players", label: "Игроки" },
           { href: "/admin/invitations", label: "Приглашения" },
           { href: "/admin/rules", label: "Правила" },
           { href: "/admin/guides", label: "Гайдбук" },
           { href: "/admin/audit", label: "Аудит" },
         ]
       : []),
+    { href: "/admin/security", label: "Безопасность" },
   ];
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-6">

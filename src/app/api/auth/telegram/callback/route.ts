@@ -7,13 +7,16 @@ import {
 import {
   clientIp,
   consumeLoginState,
+  findUserByTelegramId,
   createSession,
   getUserAccess,
+  isTombstoneBlocked,
   logSecurityEvent,
   upsertTelegramUser,
   withinRateLimit,
 } from "@/lib/auth/store";
 import {
+  BLOCKED_COOKIE,
   LOGIN_STATE_COOKIE,
   SESSION_COOKIE,
   cookieOptions,
@@ -75,16 +78,45 @@ export async function GET(req: NextRequest) {
       redirectUri: `${appUrl}/api/auth/telegram/callback`,
     });
     const profile = await verifyIdToken(idToken, { botId, nonce: saved.nonce });
+    // A deleted-and-banned identity must not come back as a new account. An existing account is
+    // judged by its own status below, which also gives the person the reason for the block.
+    if (
+      !(await findUserByTelegramId(profile.telegramId)) &&
+      (await isTombstoneBlocked(profile.telegramId))
+    ) {
+      await logSecurityEvent({ type: "login_blocked_tombstone", ip });
+      return back(req, "blocked");
+    }
     const { userId } = await upsertTelegramUser(profile);
 
     const access = await getUserAccess(userId);
     if (access.account_status !== "active") {
       await logSecurityEvent({ type: "login_blocked_account", ip, userId });
-      return back(req, "blocked");
+      const res = back(req, "blocked");
+      // The blocked person sees the reason and a contact on the login page (SC-AUTH-06).
+      res.cookies.set(
+        BLOCKED_COOKIE,
+        encodeURIComponent(
+          JSON.stringify({
+            reason: access.restriction_reason,
+            until: access.banned_until,
+          }),
+        ),
+        {
+          httpOnly: true,
+          sameSite: "lax",
+          path: "/",
+          maxAge: 600,
+          secure: process.env.NODE_ENV === "production",
+        },
+      );
+      return res;
     }
 
     const { token } = await createSession({
       userId,
+      isAdmin: access.site_role !== "player", // staff get a 12 h session with step-up
+
       ip,
       userAgent: req.headers.get("user-agent"),
     });

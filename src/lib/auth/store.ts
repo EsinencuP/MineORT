@@ -1,6 +1,7 @@
 import "server-only";
 import { isIP } from "node:net";
 import { db } from "@/lib/supabase-admin";
+import { telegramIdHash } from "@/lib/secrets";
 import { pkcePair, randomToken, sha256Hex } from "./crypto";
 import {
   LOGIN_STATE_TTL_MS,
@@ -84,6 +85,19 @@ export async function consumeLoginState(state: string) {
     : null;
 }
 
+/** Existing user for a Telegram ID, if any (a deleted account has no identity any more). */
+export async function findUserByTelegramId(
+  telegramId: string,
+): Promise<string | null> {
+  const { data, error } = await db()
+    .from("telegram_identities")
+    .select("user_id")
+    .eq("telegram_id", telegramId)
+    .maybeSingle();
+  throwIf(error, "telegram_identities select");
+  return (data?.user_id as string | undefined) ?? null;
+}
+
 export async function upsertTelegramUser(p: {
   telegramId: string;
   username: string | null;
@@ -105,7 +119,7 @@ export async function upsertTelegramUser(p: {
 export async function getUserAccess(userId: string) {
   const { data, error } = await db()
     .from("users")
-    .select("account_status, site_role, banned_until")
+    .select("account_status, site_role, banned_until, restriction_reason")
     .eq("id", userId)
     .single();
   throwIf(error, "users select");
@@ -113,7 +127,17 @@ export async function getUserAccess(userId: string) {
     account_status: string;
     site_role: string;
     banned_until: string | null;
+    restriction_reason: string | null;
   };
+}
+
+/** True when a deleted-and-banned Telegram identity may not sign in (checked before any user is created). */
+export async function isTombstoneBlocked(telegramId: string): Promise<boolean> {
+  const { data, error } = await db().rpc("tombstone_blocks", {
+    p_tg_hash: telegramIdHash(telegramId),
+  });
+  throwIf(error, "tombstone_blocks");
+  return data === true;
 }
 
 export async function createSession(p: {
@@ -143,7 +167,7 @@ export async function resolveSession(token: string) {
   const { data, error } = await db()
     .from("user_sessions")
     .select(
-      "id, user_id, expires_at, revoked_at, is_admin_session, created_at, last_seen_at",
+      "id, user_id, expires_at, revoked_at, is_admin_session, created_at, last_seen_at, step_up_until",
     )
     .eq("token_hash", sha256Hex(token))
     .maybeSingle();
@@ -167,6 +191,8 @@ export async function resolveSession(token: string) {
     sessionId: data.id as string,
     userId: data.user_id as string,
     isAdminSession: data.is_admin_session as boolean,
+    createdAt: data.created_at as string,
+    stepUpUntil: (data.step_up_until as string | null) ?? null,
     ...user,
   };
 }

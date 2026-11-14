@@ -4,10 +4,17 @@ import {
   isTestLoginEnabled,
   verifyTestToken,
 } from "@/lib/auth/test-login";
-import { SESSION_COOKIE, cookieOptions } from "@/lib/auth/session-policy";
+import {
+  BLOCKED_COOKIE,
+  SESSION_COOKIE,
+  cookieOptions,
+} from "@/lib/auth/session-policy";
 import {
   clientIp,
   createSession,
+  findUserByTelegramId,
+  getUserAccess,
+  isTombstoneBlocked,
   logSecurityEvent,
   upsertTelegramUser,
 } from "@/lib/auth/store";
@@ -38,9 +45,34 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "token_used" }, { status: 401 });
   }
   const fixture = TEST_USERS[payload.u];
+  const origin = process.env.APP_URL ?? req.nextUrl.origin;
+  // Same gates as the real Telegram login: a banned (deleted) identity never gets a new account.
+  if (
+    !(await findUserByTelegramId(fixture.telegramId)) &&
+    (await isTombstoneBlocked(fixture.telegramId))
+  ) {
+    return NextResponse.redirect(new URL("/login?error=blocked", origin));
+  }
   const { userId } = await upsertTelegramUser(fixture);
+  const access = await getUserAccess(userId);
+  if (access.account_status !== "active") {
+    const res = NextResponse.redirect(new URL("/login?error=blocked", origin));
+    res.cookies.set(
+      BLOCKED_COOKIE,
+      encodeURIComponent(
+        JSON.stringify({
+          reason: access.restriction_reason,
+          until: access.banned_until,
+        }),
+      ),
+      { httpOnly: true, sameSite: "lax", path: "/", maxAge: 600 },
+    );
+    return res;
+  }
+  const staff = access.site_role !== "player";
   const { token } = await createSession({
     userId,
+    isAdmin: staff, // staff get the 12 h admin session, as with the real login
     ip,
     userAgent: req.headers.get("user-agent"),
   });

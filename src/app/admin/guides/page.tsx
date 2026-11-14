@@ -72,6 +72,12 @@ export default async function AdminGuidesPage({
               hint="Показывается игрокам только после того, как сервер применил их допуск"
               defaultValue={settings.server_address}
             />
+            <Field
+              name="support_contact"
+              label="Контакт администрации"
+              hint="Показывается заблокированным игрокам и в кабинете"
+              defaultValue={settings.support_contact}
+            />
             <div className="sm:col-span-2">
               <Button type="submit">Сохранить настройки</Button>
             </div>

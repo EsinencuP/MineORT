@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { ensureAdminTotp } from "./support";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
 // Full admission flow against a real staging database. Needs the service key and the
@@ -72,6 +73,7 @@ async function reset() {
 }
 
 test.beforeAll(async () => {
+  await ensureAdminTotp(db, await userId("alice")); // staff need 2FA to open /admin
   // fixtures are created by `npm run seed:test`
   await reset();
 });

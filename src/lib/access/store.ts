@@ -27,6 +27,12 @@ export const ACCESS_ERRORS = [
   "bad_decision",
   "application_not_found",
   "already_decided",
+  "bad_action",
+  "cannot_target_self",
+  "user_not_found",
+  "user_deleted",
+  "bad_transition",
+  "delete_forbidden_banned",
 ] as const;
 export type AccessErrorCode = (typeof ACCESS_ERRORS)[number];
 
@@ -193,4 +199,14 @@ export async function listAudit(limit = 100) {
     .limit(limit);
   if (error) throw new Error(`audit select: ${error.message}`);
   return data ?? [];
+}
+
+export async function getTelegramBinding(userId: string) {
+  const { data, error } = await db()
+    .from("telegram_identities")
+    .select("username, linked_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(`telegram_identities select: ${error.message}`);
+  return data as { username: string | null; linked_at: string } | null;
 }

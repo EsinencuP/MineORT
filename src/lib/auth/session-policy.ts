@@ -2,9 +2,17 @@
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days rolling
 export const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours, not rolling
 export const STEP_UP_TTL_MS = 15 * 60 * 1000;
+/** Account deletion needs a Telegram sign-in not older than this (each sign-in creates a new session). */
+export const FRESH_LOGIN_MS = 5 * 60 * 1000;
+/** True when the sign-in (session creation time) is recent enough for account deletion. */
+export function isFreshLogin(createdAt: string, now = Date.now()): boolean {
+  return now - Date.parse(createdAt) <= FRESH_LOGIN_MS;
+}
 export const LOGIN_STATE_TTL_MS = 10 * 60 * 1000;
 
 export const SESSION_COOKIE = "mo_session";
+/** Short-lived hint so a blocked person can be shown the reason on the login page. */
+export const BLOCKED_COOKIE = "mo_blocked";
 /** Binds a login attempt to the browser that started it (login CSRF protection). */
 export const LOGIN_STATE_COOKIE = "mo_login_state";
 

@@ -53,6 +53,13 @@ const tables: Record<string, Record<string, unknown>> = {
   },
   server_events: { type: "x" },
   whitelist_drift: { nickname: "abc" },
+  guide_articles: { slug: "x", category: "install", title: "x" },
+  site_settings: { key: "server_address", value: "x" },
+  admin_totp: {
+    user_id: "00000000-0000-0000-0000-000000000000",
+    secret_enc: "x",
+  },
+  deletion_tombstones: { telegram_id_hash: "x" },
 };
 
 // SECURITY DEFINER helpers must not be callable by client roles.
@@ -88,6 +95,24 @@ const rpcs: Record<string, Record<string, unknown>> = {
     p_error: null,
     p_detail: null,
   },
+  release_nickname: {
+    p_user: "00000000-0000-0000-0000-000000000000",
+    p_min_until: null,
+  },
+  admin_set_account_status: {
+    p_actor: "00000000-0000-0000-0000-000000000000",
+    p_user: "00000000-0000-0000-0000-000000000001",
+    p_action: "ban",
+    p_reason: "x",
+    p_until: null,
+    p_tg_hash: null,
+  },
+  delete_account: {
+    p_user: "00000000-0000-0000-0000-000000000000",
+    p_actor: "00000000-0000-0000-0000-000000000000",
+    p_tg_hash: null,
+  },
+  tombstone_blocks: { p_tg_hash: "x" },
   write_audit: {
     p_actor: "00000000-0000-0000-0000-000000000000",
     p_action: "x",

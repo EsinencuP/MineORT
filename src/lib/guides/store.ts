@@ -176,6 +176,7 @@ export const SETTING_KEYS = [
   "client_build_version",
   "client_build_checksum",
   "client_build_url",
+  "support_contact",
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 

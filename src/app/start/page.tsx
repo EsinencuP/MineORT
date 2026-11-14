@@ -46,6 +46,7 @@ export default async function StartPage({ searchParams }: PageProps<"/start">) {
       client_build_version: "",
       client_build_checksum: "",
       client_build_url: "",
+      support_contact: "",
     }),
   ]);
   // Without data the safe answer is "guest": the server address stays hidden.
@@ -81,7 +82,7 @@ export default async function StartPage({ searchParams }: PageProps<"/start">) {
         </Card>
       )}
 
-      <Step n={1} title="Установите сборку">
+      <Step n={1} title="Установите игру">
         {settings.client_build_url ? (
           <p>
             <a
@@ -89,7 +90,7 @@ export default async function StartPage({ searchParams }: PageProps<"/start">) {
               href={settings.client_build_url}
               rel="noopener noreferrer"
             >
-              Скачать MineOrt Client {settings.client_build_version}
+              Скачать клиент {settings.client_build_version}
             </a>
             {settings.client_build_checksum && (
               <span className="text-ink-muted mt-1 block font-mono text-xs break-all">
@@ -98,7 +99,13 @@ export default async function StartPage({ searchParams }: PageProps<"/start">) {
             )}
           </p>
         ) : (
-          <p className="text-ink-muted">Сборка клиента ещё не опубликована.</p>
+          <p>
+            Модов на сервере нет: достаточно обычного Minecraft Java Edition
+            {settings.minecraft_version
+              ? ` версии ${settings.minecraft_version}`
+              : ""}
+            .
+          </p>
         )}
         <p className="mt-2">
           Подробная инструкция:{" "}

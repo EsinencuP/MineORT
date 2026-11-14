@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { ensureAdminTotp } from "./support";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
 // Landing, CTA by stage, connection wizard and Guidebook against a real staging database.
@@ -65,6 +66,7 @@ async function reset() {
 }
 
 test.beforeAll(async () => {
+  await ensureAdminTotp(db, await userId("alice")); // staff need 2FA to open /admin
   await reset();
   const { data } = await db
     .from("users")

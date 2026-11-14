@@ -650,14 +650,12 @@ describe.skipIf(!enabled)("Bridge API v1 (staging)", () => {
     it("an old nickname that now belongs to someone else is not removed", async () => {
       const oldNick = nick();
       const user = await approvedUser(oldNick);
-      await db()
-        .from("whitelist_entries")
-        .insert({
-          user_id: user,
-          nickname: oldNick,
-          desired: "on",
-          applied_state: "applied",
-        });
+      await db().from("whitelist_entries").insert({
+        user_id: user,
+        nickname: oldNick,
+        desired: "on",
+        applied_state: "applied",
+      });
       await db()
         .from("minecraft_identities")
         .update({ binding_status: "released" })

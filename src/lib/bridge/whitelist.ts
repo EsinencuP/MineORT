@@ -239,3 +239,38 @@ export async function reconcile(
     .eq("id", serverId);
   return { drift_unknown: added, drift, queued };
 }
+
+/** Takes a player off every server: whitelist.remove plus player.kick (revocation never gives up). */
+export async function enqueueRevocation(userId: string, nickname: string) {
+  for (const serverId of await allServers()) {
+    if (!(await hasOpenAction(serverId, "whitelist.remove", nickname))) {
+      await enqueueAction({
+        serverId,
+        userId,
+        type: "whitelist.remove",
+        args: { nickname },
+      });
+    }
+    await enqueueAction({
+      serverId,
+      userId,
+      type: "player.kick",
+      args: { nickname, reason: "access_revoked" },
+    });
+  }
+}
+
+/**
+ * Restoring access: revocations that have not started yet (queued or waiting for retry) are
+ * cancelled, so they cannot undo the restoration. One already in flight (leased) finishes first and
+ * the new whitelist.add follows (one whitelist action per nickname, oldest first).
+ */
+export async function cancelPendingRevocations(userId: string) {
+  const { error } = await db()
+    .from("server_actions")
+    .update({ status: "cancelled", finished_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .in("type", ["whitelist.remove", "player.kick"])
+    .in("status", ["queued", "failed_retryable"]);
+  fail(error, "server_actions cancel");
+}

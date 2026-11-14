@@ -42,17 +42,15 @@ const articles = [
 ];
 
 for (const a of articles) {
-  const { error } = await db
-    .from("guide_articles")
-    .upsert(
-      {
-        ...a,
-        published: true,
-        verified_at: today,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "slug" },
-    );
+  const { error } = await db.from("guide_articles").upsert(
+    {
+      ...a,
+      published: true,
+      verified_at: today,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "slug" },
+  );
   if (error) throw error;
   console.log("seeded", a.slug);
 }
