@@ -12,14 +12,16 @@ npm run dev      # http://localhost:3000
 
 ## Commands
 
-| Command                | What it does                            |
-| ---------------------- | --------------------------------------- |
-| `npm run dev`          | Dev server                              |
-| `npm run build`        | Production build                        |
-| `npm run typecheck`    | `next typegen` + `tsc --noEmit`         |
-| `npm run lint`         | ESLint                                  |
-| `npm run format:check` | Prettier check (`npm run format` fixes) |
-| `npm run check`        | typecheck + lint + format:check         |
+| Command                | What it does                                                                                                           |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`          | Dev server                                                                                                             |
+| `npm run build`        | Production build                                                                                                       |
+| `npm run typecheck`    | `next typegen` + `tsc --noEmit`                                                                                        |
+| `npm run lint`         | ESLint                                                                                                                 |
+| `npm run format:check` | Prettier check (`npm run format` fixes)                                                                                |
+| `npm run test`         | Unit tests (vitest)                                                                                                    |
+| `npm run test:e2e`     | Playwright smoke (builds and starts the app with all wave flags off; set `PW_CHROMIUM_PATH` to reuse a local Chromium) |
+| `npm run check`        | typecheck + lint + format:check                                                                                        |
 
 ## Rules for AI agents
 
