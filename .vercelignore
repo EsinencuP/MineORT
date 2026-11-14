@@ -1,0 +1,7 @@
+docs
+.playwright-mcp
+supabase
+.github
+test-results
+playwright-report
+.env*
