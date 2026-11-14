@@ -13,11 +13,17 @@ if (process.env.APP_ENV === "production")
 
 const db = createClient(url, key, { auth: { persistSession: false } });
 for (const u of Object.values(TEST_USERS)) {
-  const { error } = await db.rpc("upsert_telegram_user", {
+  const { data, error } = await db.rpc("upsert_telegram_user", {
     p_telegram_id: u.telegramId,
     p_username: u.username,
     p_display_name: u.name,
   });
   if (error) throw error;
-  console.log("seeded", u.username);
+  const userId = (Array.isArray(data) ? data[0] : data).user_id as string;
+  const { error: roleError } = await db
+    .from("users")
+    .update({ site_role: u.role })
+    .eq("id", userId);
+  if (roleError) throw roleError;
+  console.log("seeded", u.username, u.role);
 }

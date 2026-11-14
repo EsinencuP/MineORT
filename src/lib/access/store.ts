@@ -127,3 +127,70 @@ export const decideApplication = (
     p_decision: decision,
     p_reason: reason,
   });
+
+// ---- read models for screens ----
+export async function getAccessOverview(userId: string) {
+  const [rules, accepted, identity, membership, application] =
+    await Promise.all([
+      currentRules(),
+      hasAcceptedCurrentRules(userId),
+      db()
+        .from("minecraft_identities")
+        .select("id, nickname, binding_status")
+        .eq("user_id", userId)
+        .in("binding_status", ["reserved", "confirmed"])
+        .maybeSingle(),
+      db()
+        .from("access_memberships")
+        .select("status")
+        .eq("user_id", userId)
+        .in("status", ["pending", "approved", "suspended"])
+        .maybeSingle(),
+      db()
+        .from("applications")
+        .select("id, status, decision_reason, decided_at, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+  return {
+    rules,
+    rulesAccepted: accepted,
+    identity: identity.data,
+    membership: membership.data,
+    application: application.data,
+  };
+}
+
+export async function listPendingApplications() {
+  const { data, error } = await db()
+    .from("applications")
+    .select(
+      "id, text, created_at, user_id, minecraft_identities(nickname), users!applications_user_id_fkey(display_name)",
+    )
+    .eq("status", "pending")
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`applications select: ${error.message}`);
+  return data ?? [];
+}
+
+export async function listInvitations() {
+  const { data, error } = await db()
+    .from("invitations")
+    .select("id, status, max_uses, used_count, expires_at, created_at")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) throw new Error(`invitations select: ${error.message}`);
+  return data ?? [];
+}
+
+export async function listAudit(limit = 100) {
+  const { data, error } = await db()
+    .from("audit_log")
+    .select("id, action, details, at, actor_id, users:actor_id(display_name)")
+    .order("at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`audit select: ${error.message}`);
+  return data ?? [];
+}

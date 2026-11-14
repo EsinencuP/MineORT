@@ -1,0 +1,35 @@
+/** User-facing texts (Russian) for stable access error codes. */
+export const ACCESS_MESSAGES: Record<string, string> = {
+  forbidden: "Недостаточно прав для этого действия.",
+  account_not_active: "Аккаунт недоступен. Обратитесь к администратору.",
+  rules_required: "Сначала примите актуальные правила сервера.",
+  rules_version_outdated:
+    "Правила обновились. Откройте страницу правил и примите новую версию.",
+  version_not_newer: "Номер версии должен быть больше текущего.",
+  nick_invalid_format: "Ник: 3–16 символов, только латиница, цифры и «_».",
+  nick_taken: "Этот ник уже занят другим игроком.",
+  nick_quarantined:
+    "Этот ник временно недоступен после освобождения. Выберите другой.",
+  nick_locked:
+    "Подтверждённый ник нельзя изменить самостоятельно. Напишите администратору.",
+  nick_required: "Сначала укажите ник в Minecraft.",
+  invitation_invalid: "Приглашение не найдено. Проверьте ссылку.",
+  invitation_revoked: "Приглашение отозвано. Попросите новое у администратора.",
+  invitation_expired:
+    "Срок приглашения истёк. Попросите новое у администратора.",
+  invitation_exhausted: "Приглашение уже использовано.",
+  invitation_not_active: "Приглашение уже отозвано.",
+  already_member: "Допуск у вас уже есть.",
+  application_pending: "Заявка уже на рассмотрении.",
+  retry_too_soon: "Повторно подать заявку можно через 7 дней после отклонения.",
+  no_pending_application: "Нет заявки на рассмотрении.",
+  reason_required: "Укажите причину отклонения.",
+  bad_decision: "Неизвестное решение.",
+  bad_input: "Проверьте заполнение полей.",
+  application_not_found: "Заявка не найдена.",
+  already_decided: "По этой заявке решение уже принято.",
+  unknown: "Что-то пошло не так. Попробуйте ещё раз.",
+};
+
+export const messageFor = (code: string | null | undefined) =>
+  code ? (ACCESS_MESSAGES[code] ?? ACCESS_MESSAGES.unknown) : null;

@@ -31,7 +31,13 @@ export default defineConfig({
     : {
         command: `npm run build && npx next start -p ${port}`,
         url: baseURL,
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer: false,
+        env: {
+          APP_URL: baseURL,
+          APP_ENV: "local",
+          TEST_LOGIN_ENABLED: process.env.TEST_LOGIN_ENABLED ?? "",
+          TEST_LOGIN_SECRET: process.env.TEST_LOGIN_SECRET ?? "",
+        },
         timeout: 180_000,
       },
 });

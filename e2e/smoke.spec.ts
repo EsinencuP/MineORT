@@ -9,10 +9,24 @@ test("home renders with main CTA", async ({ page }) => {
 });
 
 test("P0 pages open", async ({ page }) => {
-  for (const path of ["/guide", "/dashboard", "/start", "/login"]) {
+  for (const path of ["/guide", "/start", "/login", "/rules"]) {
     const res = await page.goto(path);
     expect(res?.status(), path).toBe(200);
   }
+});
+
+test("dashboard sends guests to login instead of leaking data", async ({
+  request,
+}) => {
+  const res = await request.get("/dashboard", { maxRedirects: 0 });
+  expect(res.status()).toBe(307);
+  expect(res.headers()["location"]).toContain("/api/auth/telegram/start");
+});
+
+test("admin area is closed to guests", async ({ request }) => {
+  const res = await request.get("/admin/applications", { maxRedirects: 0 });
+  expect(res.status()).toBe(307);
+  expect(new URL(res.headers()["location"], "http://x").pathname).toBe("/");
 });
 
 test("flagged routes are 404 when waves are off", async ({ request }) => {
@@ -50,6 +64,8 @@ test("menu hides unavailable items and has no dead links", async ({
     .evaluateAll((a) => a.map((x) => x.getAttribute("href")!));
   expect(hrefs.length).toBeGreaterThan(0);
   for (const href of hrefs) {
-    expect((await request.get(href)).status(), href).toBe(200);
+    expect([200, 307], href).toContain(
+      (await request.get(href, { maxRedirects: 0 })).status(),
+    );
   }
 });
