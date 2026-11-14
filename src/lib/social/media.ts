@@ -40,6 +40,12 @@ async function withinLimit(key: string, windowSeconds: number, limit: number) {
 export async function createUploadTarget(userId: string) {
   if (!(await withinLimit(`upload:${userId}`, 3600, 20)))
     throw new SocialError("upload_rate_limited");
+  // Files that were never attached to a post count too: at most 20 may be waiting at once.
+  const { data: waiting } = await storage().list(`incoming/${userId}`, {
+    limit: 50,
+  });
+  if ((waiting?.length ?? 0) >= 20)
+    throw new SocialError("upload_rate_limited");
   const path = `incoming/${userId}/${randomUUID()}`;
   const { data, error } = await storage().createSignedUploadUrl(path);
   if (error || !data)
@@ -169,6 +175,25 @@ export async function releaseUnusedMedia(mediaIds: string[]) {
     })
     .in("id", free)
     .is("deleted_at", null);
+}
+
+/** Removes uploads that never became part of a post (older than one hour). */
+export async function purgeStaleIncoming() {
+  const cutoff = Date.now() - 3_600_000;
+  let removed = 0;
+  const { data: users } = await storage().list("incoming", { limit: 1000 });
+  for (const u of users ?? []) {
+    const { data: files } = await storage().list(`incoming/${u.name}`, {
+      limit: 1000,
+    });
+    const stale = (files ?? []).filter(
+      (f) => f.created_at && Date.parse(f.created_at) < cutoff,
+    );
+    if (stale.length === 0) continue;
+    await storage().remove(stale.map((f) => `incoming/${u.name}/${f.name}`));
+    removed += stale.length;
+  }
+  return removed;
 }
 
 /** Physical cleanup of media whose retention has ended (called by the daily job). */

@@ -1,4 +1,5 @@
 import "server-only";
+import { hasConfirmedTotp } from "@/lib/admin/store";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { db } from "@/lib/supabase-admin";
 
@@ -26,7 +27,13 @@ export const GUEST: Viewer = {
 export async function getViewer(): Promise<Viewer> {
   const user = await getCurrentUser();
   if (!user) return GUEST;
-  if (user.site_role === "moderator" || user.site_role === "admin") {
+  // Staff powers need a staff (12 h) session and confirmed TOTP, exactly like /admin (AC-34).
+  // Without them a moderator is treated like any other player here.
+  if (
+    (user.site_role === "moderator" || user.site_role === "admin") &&
+    user.isAdminSession &&
+    (await hasConfirmedTotp(user.userId))
+  ) {
     return {
       userId: user.userId,
       cls: "staff",
