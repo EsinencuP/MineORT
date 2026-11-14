@@ -28,7 +28,7 @@ const SERVER_LABEL: Record<ServerStatus, { tone: BadgeTone; text: string }> = {
   unknown: { tone: "neutral", text: "Статус сервера уточняется" },
 };
 
-const SKY = "bg-[linear-gradient(180deg,#9ed3ff,#d9eeff)]";
+const SKY = "art-bg";
 
 const WORLDS = [
   { src: "/art/meadow.svg", alt: "Луга с ветряной мельницей" },
@@ -66,7 +66,7 @@ export default async function Home() {
           className="absolute inset-0 -z-0"
           style={{
             background:
-              "linear-gradient(100deg, transparent 30%, rgba(167,216,255,.45) 62%, rgba(143,202,255,.8) 100%)",
+              "linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--sky) 45%, transparent) 62%, color-mix(in srgb, var(--sky) 80%, transparent) 100%)",
           }}
         />
         <div className="relative grid gap-2 px-4 pt-4 pb-16 sm:px-8 lg:grid-cols-[1fr_1.15fr] lg:items-center lg:pb-24">
@@ -146,7 +146,7 @@ export default async function Home() {
         <div className="grid items-center gap-14 lg:grid-cols-[1.1fr_.9fr]">
           <div className="relative pr-6 pb-10 lg:pr-0">
             <div
-              className={`${SKY} aspect-[4/3] overflow-hidden rounded-[1.75rem] shadow-[var(--shadow-card)] ring-4 ring-white/90`}
+              className={`${SKY} ring-paper aspect-[4/3] overflow-hidden rounded-[1.75rem] shadow-[var(--shadow-card)] ring-4`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -157,7 +157,7 @@ export default async function Home() {
               />
             </div>
             <div
-              className={`${SKY} absolute -right-1 bottom-0 aspect-[5/4] w-[38%] overflow-hidden rounded-3xl shadow-[var(--shadow-card)] ring-4 ring-white/90 lg:right-[-1.5rem]`}
+              className={`${SKY} ring-paper absolute -right-1 bottom-0 aspect-[5/4] w-[38%] overflow-hidden rounded-3xl shadow-[var(--shadow-card)] ring-4 lg:right-[-1.5rem]`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img

@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import {
   AccessError,
   acceptRules,
+  currentRules,
+  hasAcceptedCurrentRules,
   redeemInvitation,
   reserveNickname,
   submitApplication,
@@ -15,6 +17,18 @@ import { safeReturnTo } from "@/lib/auth/session-policy";
 
 const str = (v: FormDataEntryValue | null) =>
   typeof v === "string" ? v.trim() : "";
+
+/**
+ * The rules checkbox in the access forms: if the current rules are not accepted yet, the box must be
+ * ticked, and ticking it records the acceptance in the same step.
+ */
+async function ensureRulesAccepted(userId: string, formData: FormData) {
+  if (await hasAcceptedCurrentRules(userId)) return;
+  if (formData.get("rules") !== "on") throw new AccessError("rules_required");
+  const current = await currentRules();
+  if (!current) throw new AccessError("rules_required");
+  await acceptRules(userId, current.id);
+}
 
 /** Runs a mutation as the signed-in user; always ends in a redirect with ?error=code or ?ok=1. */
 async function run(
@@ -53,6 +67,7 @@ export async function reserveNickAction(formData: FormData) {
 
 export async function redeemInvitationAction(formData: FormData) {
   return run(formData, "/onboarding/minecraft", "invite", async (uid) => {
+    await ensureRulesAccepted(uid, formData);
     await redeemInvitation(uid, str(formData.get("token")));
     // The membership is already saved; if queuing fails, reconciliation re-queues it.
     await onMembershipApproved(uid).catch(() => undefined);
@@ -60,9 +75,20 @@ export async function redeemInvitationAction(formData: FormData) {
 }
 
 export async function submitApplicationAction(formData: FormData) {
-  return run(formData, "/onboarding/minecraft", "applied", (uid) =>
-    submitApplication(uid, str(formData.get("text")).slice(0, 1000) || null),
-  );
+  // The short form: why, and (optionally) who invited. An older single "text" field still works.
+  const why = str(formData.get("why"));
+  const from = str(formData.get("referrer"));
+  const text =
+    [
+      why && `Почему хочу присоединиться: ${why}`,
+      from && `Откуда узнал: ${from}`,
+    ]
+      .filter(Boolean)
+      .join("\n") || str(formData.get("text"));
+  return run(formData, "/onboarding/minecraft", "applied", async (uid) => {
+    await ensureRulesAccepted(uid, formData);
+    await submitApplication(uid, text.slice(0, 1000) || null);
+  });
 }
 
 export async function withdrawApplicationAction(formData: FormData) {

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { MenuItem } from "@/lib/menu";
+import { ThemeToggle } from "./theme-toggle";
 
 export function MobileNav({ items }: { items: MenuItem[] }) {
   const [open, setOpen] = useState(false);
@@ -66,11 +67,15 @@ export function MobileNav({ items }: { items: MenuItem[] }) {
                 )}
               </li>
             ))}
+            <li className="flex items-center gap-3 pt-3 min-[380px]:hidden">
+              <ThemeToggle />
+              <span className="text-ink-muted text-sm">Тема оформления</span>
+            </li>
             <li className="pt-3">
               <Link
                 href="/start"
                 onClick={close}
-                className="bg-brand-600 flex min-h-12 items-center justify-center rounded-full px-4 font-semibold text-white"
+                className="bg-brand-600 text-on-brand flex min-h-12 items-center justify-center rounded-full px-4 font-semibold"
               >
                 Начать играть
               </Link>

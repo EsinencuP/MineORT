@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
-/* Design tokens. Palette from the brand board: grass #6BAF5D, dirt #B57A4E, cream #F5E6D3,
-   sky #A7D8FF, off-white #F9FAFB. Light theme only: the identity is a bright sky-and-grass world.
+/* Design tokens, two themes. Dark (graphite + emerald) is the default per the product brief; the
+   light sky-and-grass theme keeps the reference palette: grass #6BAF5D, dirt #B57A4E, cream #F5E6D3,
+   sky #A7D8FF. The theme is chosen by data-theme on <html> (see ThemeToggle).
    The ORT Hertli emblem is not used until rights are confirmed (OD-39). */
 :root {
   color-scheme: light;
@@ -10,6 +11,9 @@
   --sky-soft: #dff0ff;
   --cream: #f5e6d3;
   --bark: #b57a4e;
+  --sand: #b89a5a;
+  --gold: #8a6a1f;
+  --tg: #1877ab; /* Telegram blue, darkened so white text passes AA */
 
   --paper: #fbf8f3; /* the page card */
   --surface: #f6ecdd; /* soft panels on the card */
@@ -21,9 +25,11 @@
   --brand-100: #dcebd5;
   --brand-500: #6baf5d; /* fills and borders (palette green) */
   --accent: #5a9b4c; /* large accent text: 3:1 on the page card */
-  --brand-600: #478035; /* buttons: white text passes AA */
-  --brand-700: #3c6e2d;
+  --brand-600: #478035; /* buttons */
+  --brand-700: #3c6e2d; /* links */
   --brand-900: #2a4e20;
+  --on-brand: #ffffff; /* label on a brand-600 button */
+  --on-danger: #ffffff;
 
   --ok: #2f6b2a;
   --ok-bg: #e3f2dc;
@@ -35,6 +41,71 @@
   --info-bg: #e4eefb;
 
   --focus: #1f5fd0;
+
+  --art-bg: linear-gradient(
+    180deg,
+    #9ed3ff,
+    #d9eeff
+  ); /* behind the voxel illustrations */
+  --page-bg:
+    radial-gradient(
+      1200px 600px at 85% -10%,
+      rgba(255, 255, 255, 0.75),
+      transparent 60%
+    ),
+    linear-gradient(180deg, #8fcaff 0%, #b9e0ff 38%, #dff0ff 100%);
+  --shadow-card: 0 10px 30px rgba(52, 78, 40, 0.1);
+  --shadow-page: 0 24px 70px rgba(38, 86, 140, 0.22);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --sky: #1d3b57;
+  --sky-soft: #223a50;
+  --cream: #2a3139;
+  --bark: #b57a4e;
+  --sand: #e8d5a8;
+  --gold: #d4ae52;
+  --tg: #1877ab;
+
+  --paper: #1a2026;
+  --surface: #232b33;
+  --ink: #e9eef2;
+  --ink-muted: #a1adb7;
+  --line: #333e48;
+
+  --brand-50: #172a20;
+  --brand-100: #1f3a2b;
+  --brand-500: #34c47a;
+  --accent: #4fd38a;
+  --brand-600: #2fbf71;
+  --brand-700: #5be39a;
+  --brand-900: #b9f3d2;
+  --on-brand: #0b1a12;
+  --on-danger: #2a0a08;
+
+  --ok: #7ee8aa;
+  --ok-bg: #143323;
+  --warn: #f0c36a;
+  --warn-bg: #3a2d10;
+  --danger: #ff9d96;
+  --danger-bg: #3d1713;
+  --info: #9bc2f5;
+  --info-bg: #14263f;
+
+  --focus: #8ab4ff;
+
+  --art-bg: linear-gradient(180deg, #1b3550, #2c5478);
+  --page-bg:
+    radial-gradient(
+      900px 500px at 85% -5%,
+      rgba(47, 191, 113, 0.14),
+      transparent 60%
+    ),
+    linear-gradient(180deg, #0d1217 0%, #131a21 55%, #1a232b 100%);
+  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --shadow-page: 0 24px 70px rgba(0, 0, 0, 0.55);
 }
 
 @theme inline {
@@ -42,6 +113,9 @@
   --color-sky-soft: var(--sky-soft);
   --color-cream: var(--cream);
   --color-bark: var(--bark);
+  --color-sand: var(--sand);
+  --color-gold: var(--gold);
+  --color-tg: var(--tg);
   --color-paper: var(--paper);
   --color-surface: var(--surface);
   --color-ink: var(--ink);
@@ -54,6 +128,8 @@
   --color-brand-600: var(--brand-600);
   --color-brand-700: var(--brand-700);
   --color-brand-900: var(--brand-900);
+  --color-on-brand: var(--on-brand);
+  --color-on-danger: var(--on-danger);
   --color-ok: var(--ok);
   --color-ok-bg: var(--ok-bg);
   --color-warn: var(--warn);
@@ -67,25 +143,18 @@
   --font-pixel: var(--font-pixelify), var(--font-inter), monospace;
   --font-mono: var(--font-jetbrains), ui-monospace, monospace;
   --radius-card: 1.25rem;
-  --shadow-card: 0 10px 30px rgba(52, 78, 40, 0.1);
-  --shadow-page: 0 24px 70px rgba(38, 86, 140, 0.22);
+  --shadow-card: var(--shadow-card);
+  --shadow-page: var(--shadow-page);
 }
 
 body {
   min-width: 320px;
   color: var(--ink);
   font-family: var(--font-sans);
-  /* sky: bright blue at the top fading to a pale horizon, like the reference */
-  background:
-    radial-gradient(
-      1200px 600px at 85% -10%,
-      rgba(255, 255, 255, 0.75),
-      transparent 60%
-    ),
-    linear-gradient(180deg, #8fcaff 0%, #b9e0ff 38%, #dff0ff 100%) fixed;
+  background: var(--page-bg) fixed;
 }
 
-/* Page card: the cream sheet that floats over the sky. */
+/* Page card: the sheet that floats over the sky (light) or the night (dark). */
 .page-card {
   position: relative;
   background: var(--paper);
@@ -93,12 +162,19 @@ body {
   box-shadow: var(--shadow-page);
 }
 
-/* Page headings use the pixel face everywhere, as in the reference identity. */
+/* Sky panel behind a voxel illustration. */
+.art-bg {
+  background: var(--art-bg);
+}
+
+/* Page headings use the pixel face everywhere. */
 h1,
 h2 {
   font-family: var(--font-pixelify), var(--font-inter), monospace;
   font-weight: 700;
   letter-spacing: 0.01em;
+  /* a long word in the pixel face must wrap on a 320 px phone instead of scrolling the page */
+  overflow-wrap: anywhere;
 }
 
 .font-pixel {
@@ -108,7 +184,7 @@ h2 {
   -webkit-font-smoothing: none;
 }
 
-/* Small caps label, as in the reference ("A CREATIVE PORTFOLIO", "ABOUT ME"). */
+/* Small caps label ("О ПРОЕКТЕ", "МИРЫ СЕРВЕРА"). */
 .eyebrow {
   font-size: 0.7rem;
   letter-spacing: 0.28em;
@@ -126,6 +202,29 @@ h2 {
 :where(a, button, input, select, textarea, summary):focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* Gentle hover lift for cards that are links. */
+.lift {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.lift:hover {
+  transform: translateY(-2px);
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.live-dot {
+  animation: pulse-dot 1.8s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

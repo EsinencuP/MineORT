@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Pixelify_Sans } from "next/font/google";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
+import { THEME_INIT_SCRIPT } from "@/components/layout/theme-toggle";
 import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
@@ -31,8 +32,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="ru"
+      data-theme="dark"
+      suppressHydrationWarning
       className={`${inter.variable} ${pixel.variable} ${mono.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-full">
         <ToastProvider>
           {/* Blurred voxel leaves and clouds frame the page card, like the reference background. */}

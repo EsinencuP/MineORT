@@ -164,17 +164,17 @@ test("the wizard cannot be skipped: access forms stay closed until rules and nic
     .eq("user_id", await userId("carol"));
   const carol = await asUser(browser, "carol");
   await carol.goto("/onboarding/minecraft");
+  // without a nickname only the nickname step is open
   await expect(
-    carol.getByText("Сначала примите правила сервера (шаг 2)."),
+    carol.getByRole("heading", { level: 1, name: /подключим Minecraft/ }),
   ).toBeVisible();
+  await expect(carol.getByPlaceholder("Твой Minecraft-ник")).toBeVisible();
   await expect(
-    carol.getByRole("button", { name: "Подать заявку" }),
+    carol.getByRole("button", { name: "Отправить заявку" }),
   ).toHaveCount(0);
   await expect(
-    carol.getByText(
-      "Этот шаг откроется, когда вы примете правила и укажете ник.",
-    ),
-  ).toBeVisible();
+    carol.getByRole("button", { name: "Использовать приглашение" }),
+  ).toHaveCount(0);
 });
 
 test("server address and 'can connect' appear only after the whitelist is applied", async ({

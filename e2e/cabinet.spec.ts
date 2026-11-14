@@ -293,7 +293,9 @@ test("a ban hides access, shows the reason and contact on login, and revokes the
 
   // signing in again shows why, until when, and whom to contact
   const blocked = await asUser(browser, "carol", /\/login\?error=blocked/);
-  await expect(blocked.getByText("Этот аккаунт не может войти.")).toBeVisible();
+  await expect(
+    blocked.getByText("Этот аккаунт не может войти").first(),
+  ).toBeVisible();
   await expect(blocked.getByText(/Причина: griefing/)).toBeVisible();
   await expect(blocked.getByText(/Действует до/)).toBeVisible();
   await expect(blocked.getByText(/admin@example.test/)).toBeVisible();
@@ -318,7 +320,9 @@ test("deleting a banned account does not lift the ban: the identity cannot retur
     .eq("telegram_id", TG.carol);
   expect(before.data).toHaveLength(0);
   const attempt = await asUser(browser, "carol", /\/login\?error=blocked/);
-  await expect(attempt.getByText("Этот аккаунт не может войти.")).toBeVisible();
+  await expect(
+    attempt.getByText("Этот аккаунт не может войти").first(),
+  ).toBeVisible();
   const after = await db
     .from("telegram_identities")
     .select("user_id")

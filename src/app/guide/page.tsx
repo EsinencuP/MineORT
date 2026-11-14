@@ -46,7 +46,7 @@ export default async function GuidePage({ searchParams }: PageProps<"/guide">) {
         />
         <button
           type="submit"
-          className="bg-brand-600 text-paper dark:text-paper min-h-11 rounded-lg px-5 font-semibold text-white"
+          className="bg-brand-600 text-on-brand min-h-11 rounded-full px-5 font-semibold"
         >
           Найти
         </button>

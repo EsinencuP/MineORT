@@ -1,67 +1,41 @@
 import type { Metadata } from "next";
-import { redeemInvitationAction } from "@/app/actions/access";
+import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { Button, ButtonLink } from "@/components/ui/button";
-import { Notice } from "@/components/ui/notice";
+import { Card } from "@/components/ui/card";
+import { ButtonLink } from "@/components/ui/button";
+import { TelegramLoginButton } from "@/components/portal/telegram-login";
 
 export const metadata: Metadata = { title: "Приглашение" };
+export const dynamic = "force-dynamic";
 
 export default async function InvitePage({
   params,
-  searchParams,
 }: PageProps<"/invite/[code]">) {
-  const [{ code }, sp, user] = await Promise.all([
-    params,
-    searchParams,
-    getCurrentUser(),
-  ]);
-  const here = `/invite/${encodeURIComponent(code)}`;
-  const done = sp.ok === "invite";
+  const { code } = await params;
+  const user = await getCurrentUser();
+  // Signed in: continue in the wizard with the code already filled in.
+  if (user) redirect(`/onboarding/minecraft?code=${encodeURIComponent(code)}`);
 
+  const next = `/onboarding/minecraft?code=${encodeURIComponent(code)}`;
   return (
-    <div className="mx-auto w-full max-w-xl px-4 py-10">
-      <h1 className="mb-4 text-2xl font-bold">Приглашение на сервер</h1>
-      <Notice
-        error={sp.error}
-        ok={sp.ok}
-        okTexts={{
-          invite: "Приглашение принято. Допуск получен.",
-          rules: "Правила приняты. Теперь используйте приглашение.",
-        }}
-      />
-      {done ? (
-        <ButtonLink href="/start">Продолжить</ButtonLink>
-      ) : user ? (
-        <form action={redeemInvitationAction} className="flex flex-col gap-3">
-          <input type="hidden" name="token" value={code} />
-          <input type="hidden" name="return_to" value={here} />
-          <p className="text-ink-muted">
-            Перед использованием нужно принять правила сервера.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit">Использовать приглашение</Button>
-            <ButtonLink
-              href={`/rules?return_to=${encodeURIComponent(here)}`}
-              variant="secondary"
-            >
-              Прочитать правила
-            </ButtonLink>
-          </div>
-        </form>
-      ) : (
-        <>
-          <p className="text-ink-muted mb-4">
-            Войдите через Telegram, и вы вернётесь на эту страницу, чтобы
-            принять приглашение.
-          </p>
-          <ButtonLink
-            href={`/api/auth/telegram/start?return_to=${encodeURIComponent(here)}`}
-            prefetch={false}
-          >
-            Войти через Telegram
-          </ButtonLink>
-        </>
-      )}
+    <div className="mx-auto w-full max-w-xl px-4 py-10 sm:px-8">
+      <p className="eyebrow">Приглашение</p>
+      <h1 className="mt-3 text-3xl">Тебя пригласили в MineOrt</h1>
+      <p className="text-ink-muted mt-3">
+        Войди через Telegram, и мы подставим код приглашения на следующем шаге.
+      </p>
+      <Card className="mt-6 flex flex-col gap-4">
+        <TelegramLoginButton
+          href={`/api/auth/telegram/start?return_to=${encodeURIComponent(next)}`}
+        />
+        <ButtonLink
+          href="/rules"
+          variant="ghost"
+          className="self-center text-sm"
+        >
+          Прочитать правила сервера
+        </ButtonLink>
+      </Card>
     </div>
   );
 }

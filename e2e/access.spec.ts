@@ -98,31 +98,29 @@ test("admin publishes rules, creates an invitation; a player redeems it", async 
   expect(link).toContain("/invite/");
   const path = new URL(link).pathname;
 
+  // the invitation link takes a signed-in player to the onboarding page with the code filled in
   const bob = await asUser(browser, "bob");
   await bob.goto(path);
+  await expect(bob).toHaveURL(/\/onboarding\/minecraft\?code=/);
+  await bob.getByPlaceholder("Твой Minecraft-ник").fill("Bob_E2E");
+  await bob.getByRole("button", { name: "Продолжить" }).click();
+  await expect(bob.getByText("Bob_E2E")).toBeVisible();
+
+  // the rules checkbox is required before the invitation is used
+  await bob.getByRole("button", { name: "Использовать приглашение" }).click();
+  await expect(bob.getByLabel("Код приглашения")).not.toHaveValue("");
+  await bob.locator("#rules-invite").check();
   await bob.getByRole("button", { name: "Использовать приглашение" }).click();
   await expect(
-    bob.getByText("Сначала примите актуальные правила сервера."),
+    bob.getByRole("heading", { level: 1, name: "Доступ одобрен" }),
   ).toBeVisible();
 
-  await bob.getByRole("link", { name: "Прочитать правила" }).click();
-  await expect(
-    bob.getByText("Не гриферить. Уважать других игроков."),
-  ).toBeVisible();
-  await bob.getByRole("button", { name: "Принимаю правила" }).click();
-  await expect(bob.getByText("Правила приняты.")).toBeVisible();
-
-  await bob.goto(path);
-  await bob.getByRole("button", { name: "Использовать приглашение" }).click();
-  await expect(
-    bob.getByText("Приглашение принято. Допуск получен."),
-  ).toBeVisible();
-
-  // single use: the same link no longer works for anybody else
+  // single use: the same code no longer works for anybody else
   const carol = await asUser(browser, "carol");
-  await carol.goto("/rules");
-  await carol.getByRole("button", { name: "Принимаю правила" }).click();
   await carol.goto(path);
+  await carol.getByPlaceholder("Твой Minecraft-ник").fill("Carol_Inv");
+  await carol.getByRole("button", { name: "Продолжить" }).click();
+  await carol.locator("#rules-invite").check();
   await carol.getByRole("button", { name: "Использовать приглашение" }).click();
   await expect(carol.getByText("Приглашение уже использовано.")).toBeVisible();
 
@@ -135,23 +133,34 @@ test("admin publishes rules, creates an invitation; a player redeems it", async 
 test("a player applies and a moderator decision gives access", async ({
   browser,
 }) => {
+  // start from a clean slate: the previous test already gave carol a nickname
+  const carolId = await userId("carol");
+  await db.from("applications").delete().eq("user_id", carolId);
+  await db.from("minecraft_identities").delete().eq("user_id", carolId);
+  await db.from("rules_acceptances").delete().eq("user_id", carolId);
   const carol = await asUser(browser, "carol");
-  await carol.goto("/rules");
-  const accept = carol.getByRole("button", { name: "Принимаю правила" });
-  if (await accept.isVisible()) await accept.click();
   await carol.goto("/onboarding/minecraft");
-  await carol.getByLabel("Ник", { exact: true }).fill("ab");
-  await carol.getByRole("button", { name: "Сохранить ник" }).click();
+  const nick = carol.getByPlaceholder("Твой Minecraft-ник");
+  await nick.fill("ab");
   await expect(
-    carol.getByText("Ник: 3–16 символов, только латиница, цифры и «_»."),
+    carol.getByText("3–16 символов", { exact: false }),
   ).toBeVisible();
 
-  await carol.getByLabel("Ник", { exact: true }).fill("Carol_E2E");
-  await carol.getByRole("button", { name: "Сохранить ник" }).click();
+  await nick.fill("Carol_E2E");
+  await carol.getByRole("button", { name: "Продолжить" }).click();
   await expect(carol.getByText("Carol_E2E")).toBeVisible();
-  await carol.getByLabel("Или подайте заявку").fill("Хочу играть");
-  await carol.getByRole("button", { name: "Подать заявку" }).click();
-  await expect(carol.getByText("Заявка на рассмотрении")).toBeVisible();
+
+  // an application without the rules checkbox is refused, with it it goes through
+  await carol.getByText("Заполнить заявку").click();
+  await carol
+    .getByLabel("Почему хочешь присоединиться к MineOrt?")
+    .fill("Хочу играть");
+  await carol.getByRole("button", { name: "Отправить заявку" }).click();
+  await carol.locator("#rules-app").check();
+  await carol.getByRole("button", { name: "Отправить заявку" }).click();
+  await expect(
+    carol.getByRole("heading", { level: 1, name: "Заявка на рассмотрении" }),
+  ).toBeVisible();
 
   const admin = await asUser(browser, "alice");
   await admin.goto("/admin/applications");
@@ -165,10 +174,14 @@ test("a player applies and a moderator decision gives access", async ({
   await expect(admin.getByText("Решение сохранено.")).toBeVisible();
 
   await carol.goto("/onboarding/minecraft");
-  await expect(carol.getByText("Причина: Мало информации")).toBeVisible();
+  await expect(carol.getByText(/Мало информации/)).toBeVisible();
 
   // within 7 days a new application is refused
-  await carol.getByRole("button", { name: "Подать заявку" }).click();
+  await carol.getByText("Заполнить заявку").click();
+  await carol
+    .getByLabel("Почему хочешь присоединиться к MineOrt?")
+    .fill("Ещё раз");
+  await carol.getByRole("button", { name: "Отправить заявку" }).click();
   await expect(
     carol.getByText(
       "Повторно подать заявку можно через 7 дней после отклонения.",
@@ -186,7 +199,11 @@ test("a player applies and a moderator decision gives access", async ({
     .update({ decided_at: new Date(Date.now() - 8 * 86_400_000).toISOString() })
     .eq("user_id", id);
   await carol.goto("/onboarding/minecraft");
-  await carol.getByRole("button", { name: "Подать заявку" }).click();
+  await carol.getByText("Заполнить заявку").click();
+  await carol
+    .getByLabel("Почему хочешь присоединиться к MineOrt?")
+    .fill("Повторная заявка");
+  await carol.getByRole("button", { name: "Отправить заявку" }).click();
   await admin.goto("/admin/applications");
   await admin
     .locator("li", { hasText: "Carol_E2E" })

@@ -8,11 +8,11 @@ const base =
   "inline-flex min-h-12 items-center justify-center gap-2 rounded-full px-6 py-2.5 text-base font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 
 const variants: Record<Variant, string> = {
-  primary: "bg-brand-600 text-white shadow-sm hover:bg-brand-700",
+  primary: "bg-brand-600 text-on-brand shadow-sm hover:brightness-110",
   secondary:
     "border-2 border-brand-500 bg-transparent text-brand-700 hover:bg-brand-50",
   ghost: "text-brand-700 hover:bg-brand-50",
-  danger: "bg-danger text-white shadow-sm hover:opacity-90",
+  danger: "bg-danger text-on-danger shadow-sm hover:opacity-90",
 };
 
 export function buttonClass(variant: Variant = "primary", extra = "") {

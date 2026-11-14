@@ -4,6 +4,10 @@ import { db } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
+const count = (v: unknown) =>
+  Number.isInteger(v) && (v as number) >= 0 && (v as number) < 100000
+    ? (v as number)
+    : null;
 const str = (v: unknown, max = 64) =>
   typeof v === "string" ? v.slice(0, max) : null;
 
@@ -31,6 +35,8 @@ export async function POST(req: NextRequest) {
       last_heartbeat_at: new Date().toISOString(),
       bridge_version: str(body.bridge_version),
       server_version: str(body.server_version),
+      online_count: count(body.online_count),
+      max_players: count(body.max_players),
       journal_epoch:
         typeof body.journal_epoch === "string" ? body.journal_epoch : null,
     })

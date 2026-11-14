@@ -148,7 +148,7 @@ export async function getAccessOverview(userId: string) {
         .maybeSingle(),
       db()
         .from("access_memberships")
-        .select("status")
+        .select("status, source_redemption_id")
         .eq("user_id", userId)
         .in("status", ["pending", "approved", "suspended"])
         .maybeSingle(),
@@ -209,4 +209,15 @@ export async function getTelegramBinding(userId: string) {
     .maybeSingle();
   if (error) throw new Error(`telegram_identities select: ${error.message}`);
   return data as { username: string | null; linked_at: string } | null;
+}
+
+export async function getProfile(userId: string) {
+  const [{ data: user }, tg] = await Promise.all([
+    db().from("users").select("display_name").eq("id", userId).maybeSingle(),
+    getTelegramBinding(userId),
+  ]);
+  return {
+    name: (user?.display_name as string | null) ?? tg?.username ?? "Игрок",
+    username: tg?.username ?? null,
+  };
 }

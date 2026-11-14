@@ -4,6 +4,7 @@ import { visibleMenu } from "@/lib/menu";
 import { ButtonLink } from "@/components/ui/button";
 import { ArrowUpRight } from "@/components/ui/icons";
 import { MobileNav } from "./mobile-nav";
+import { ThemeToggle } from "./theme-toggle";
 
 export function BrandMark() {
   return (
@@ -66,6 +67,9 @@ export async function SiteHeader() {
         </nav>
 
         <div className="flex items-center gap-2">
+          <div className="hidden min-[380px]:block">
+            <ThemeToggle />
+          </div>
           <div className="hidden lg:block">
             <ButtonLink href="/start" className="min-h-11 px-5 text-sm">
               Начать играть

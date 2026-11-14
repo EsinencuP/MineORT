@@ -31,7 +31,7 @@ export function FeaturedRow({ items }: { items: FeaturedItem[] }) {
         {items.map((it) => (
           <li
             key={it.src}
-            className="aspect-[4/3] w-[62%] shrink-0 snap-start overflow-hidden rounded-3xl bg-[linear-gradient(180deg,#9ed3ff,#d9eeff)] shadow-[var(--shadow-card)] sm:w-[calc(25%-12px)]"
+            className="art-bg aspect-[4/3] w-[62%] shrink-0 snap-start overflow-hidden rounded-3xl shadow-[var(--shadow-card)] sm:w-[calc(25%-12px)]"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
