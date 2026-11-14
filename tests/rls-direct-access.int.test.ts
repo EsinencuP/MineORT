@@ -16,6 +16,27 @@ const tables: Record<string, Record<string, unknown>> = {
   users: { site_role: "admin", account_status: "active" },
   audit_log: { action: "x" },
   security_events: { type: "x" },
+  telegram_identities: { telegram_id: 1 },
+  user_sessions: { token_hash: "x", expires_at: "2030-01-01T00:00:00Z" },
+  login_states: {
+    state_hash: "x",
+    nonce: "x",
+    code_verifier: "x",
+    expires_at: "2030-01-01T00:00:00Z",
+  },
+  rate_limit_counters: { key: "x", window_start: "2030-01-01T00:00:00Z" },
+  test_login_tokens: { jti: "x" },
+};
+
+// SECURITY DEFINER helpers must not be callable by client roles.
+const rpcs: Record<string, Record<string, unknown>> = {
+  hit_rate_limit: { p_key: "x", p_window_seconds: 60, p_limit: 1 },
+  consume_login_state: { p_state_hash: "x" },
+  upsert_telegram_user: {
+    p_telegram_id: 1,
+    p_username: "x",
+    p_display_name: "x",
+  },
 };
 
 describe.skipIf(!url || !key)("client roles cannot touch base tables", () => {
@@ -33,12 +54,26 @@ describe.skipIf(!url || !key)("client roles cannot touch base tables", () => {
       expect([401, 403]).toContain(res.status);
     });
     it(`${table}: UPDATE denied`, async () => {
-      const res = await fetch(`${url}/rest/v1/${table}?id=not.is.null`, {
-        method: "PATCH",
-        headers,
-        body: JSON.stringify(row),
-      });
+      const res = await fetch(
+        `${url}/rest/v1/${table}?${Object.keys(row)[0]}=not.is.null`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify(row),
+        },
+      );
       expect([401, 403]).toContain(res.status);
+    });
+  }
+
+  for (const [fn, args] of Object.entries(rpcs)) {
+    it(`rpc ${fn}: denied`, async () => {
+      const res = await fetch(`${url}/rest/v1/rpc/${fn}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(args),
+      });
+      expect([401, 403, 404]).toContain(res.status);
     });
   }
 });
