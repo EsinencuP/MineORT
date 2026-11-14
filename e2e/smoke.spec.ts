@@ -2,7 +2,9 @@ import { expect, test } from "@playwright/test";
 
 test("home renders with main CTA", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "MineOrt IV" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(
+    "Исследуй",
+  );
   await expect(
     page.getByRole("link", { name: "Начать играть" }).first(),
   ).toBeVisible();

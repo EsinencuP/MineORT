@@ -23,7 +23,7 @@ export function MobileNav({ items }: { items: MenuItem[] }) {
         aria-expanded={open}
         aria-controls="mobile-menu"
         onClick={() => setOpen((v) => !v)}
-        className="border-line min-h-11 rounded-lg border px-3 font-semibold"
+        className="border-brand-500/60 bg-paper relative z-50 min-h-11 rounded-full border px-4 text-sm font-semibold"
       >
         {open ? "Закрыть" : "Меню"}
       </button>
@@ -31,14 +31,14 @@ export function MobileNav({ items }: { items: MenuItem[] }) {
         <nav
           id="mobile-menu"
           aria-label="Главное меню"
-          className="bg-paper fixed inset-x-0 top-16 bottom-0 z-40 overflow-y-auto p-4"
+          className="bg-paper fixed inset-0 z-40 overflow-y-auto p-4 pt-20"
         >
           <ul className="flex flex-col gap-1">
             {items.map((item) => (
               <li key={item.href + item.label}>
                 {item.children ? (
                   <details>
-                    <summary className="flex min-h-11 cursor-pointer items-center rounded-lg px-3 text-lg font-semibold">
+                    <summary className="font-pixel flex min-h-12 cursor-pointer items-center rounded-2xl px-3 text-xl">
                       {item.label}
                     </summary>
                     <ul className="border-line mb-2 ml-3 border-l pl-3">
@@ -59,18 +59,18 @@ export function MobileNav({ items }: { items: MenuItem[] }) {
                   <Link
                     href={item.href}
                     onClick={close}
-                    className="flex min-h-11 items-center rounded-lg px-3 text-lg font-semibold"
+                    className="font-pixel flex min-h-12 items-center rounded-2xl px-3 text-xl"
                   >
                     {item.label}
                   </Link>
                 )}
               </li>
             ))}
-            <li className="pt-2">
+            <li className="pt-3">
               <Link
                 href="/start"
                 onClick={close}
-                className="bg-brand-600 text-paper flex min-h-11 items-center justify-center rounded-lg px-4 font-semibold"
+                className="bg-brand-600 flex min-h-12 items-center justify-center rounded-full px-4 font-semibold text-white"
               >
                 Начать играть
               </Link>

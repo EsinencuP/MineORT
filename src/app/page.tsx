@@ -1,14 +1,22 @@
 import Link from "next/link";
 import { currentRules } from "@/lib/access/store";
-import { safely } from "@/lib/safe";
 import { ctaFor } from "@/lib/onboarding/stage";
 import { getCurrentStage } from "@/lib/onboarding/server";
+import { safely } from "@/lib/safe";
 import {
   getPublicServerStatus,
   type ServerStatus,
 } from "@/lib/site/server-status";
-import { ButtonLink } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { FeaturedRow } from "@/components/home/featured-row";
+import { ButtonLink, circleClass } from "@/components/ui/button";
+import { ArrowRight, PlayIcon } from "@/components/ui/icons";
+import {
+  LEAF,
+  LEAF_COLORS,
+  PICKAXE,
+  PICKAXE_COLORS,
+  PixelSprite,
+} from "@/components/ui/pixel-sprite";
 import { StatusBadge, type BadgeTone } from "@/components/ui/status-badge";
 
 export const dynamic = "force-dynamic"; // reads the session and live data on every request
@@ -19,6 +27,23 @@ const SERVER_LABEL: Record<ServerStatus, { tone: BadgeTone; text: string }> = {
   paused: { tone: "warn", text: "Сервер временно закрыт для входа" },
   unknown: { tone: "neutral", text: "Статус сервера уточняется" },
 };
+
+const SKY = "bg-[linear-gradient(180deg,#9ed3ff,#d9eeff)]";
+
+const WORLDS = [
+  { src: "/art/meadow.svg", alt: "Луга с ветряной мельницей" },
+  { src: "/art/snow.svg", alt: "Снежные горы и ели" },
+  { src: "/art/cherry.svg", alt: "Вишнёвая роща на острове" },
+  { src: "/art/lava.svg", alt: "Лавовая пещера" },
+];
+
+function Eyebrow({ children, id }: { children: React.ReactNode; id?: string }) {
+  return (
+    <p id={id} className="eyebrow">
+      {children}
+    </p>
+  );
+}
 
 export default async function Home() {
   const [stage, status, rules] = await Promise.all([
@@ -33,64 +58,229 @@ export default async function Home() {
     : null;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-10">
-      <section aria-labelledby="hero" className="mb-10">
-        <h1 id="hero" className="text-3xl font-bold sm:text-4xl">
-          MineOrt IV
-        </h1>
-        <p className="text-ink-muted mt-3 max-w-prose text-lg">
-          Сервер Minecraft для своих. Узнайте, как подключиться, и начните
-          играть.
-        </p>
-        <p className="mt-4">
-          <StatusBadge tone={server.tone}>{server.text}</StatusBadge>
-        </p>
-        <div className="mt-6 flex flex-wrap gap-3">
-          <ButtonLink href={cta.href} className="min-h-14 px-8 text-lg">
-            {cta.label}
-          </ButtonLink>
-          {cta.secondary && (
-            <ButtonLink
-              href={cta.secondary.href}
-              variant="secondary"
-              className="min-h-14 px-6 text-lg"
+    <>
+      {/* ---------- Hero ---------- */}
+      <section aria-labelledby="hero" className="relative overflow-x-clip">
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 -z-0"
+          style={{
+            background:
+              "linear-gradient(100deg, transparent 30%, rgba(167,216,255,.45) 62%, rgba(143,202,255,.8) 100%)",
+          }}
+        />
+        <div className="relative grid gap-2 px-4 pt-4 pb-16 sm:px-8 lg:grid-cols-[1fr_1.15fr] lg:items-center lg:pb-24">
+          <div className="relative z-10">
+            <Eyebrow>Сообщество Minecraft</Eyebrow>
+            <h1
+              id="hero"
+              className="font-pixel mt-5 text-[clamp(2.75rem,9.5vw,5.75rem)] leading-[0.92]"
             >
-              {cta.secondary.label}
-            </ButtonLink>
-          )}
+              <span className="block">Строй</span>
+              <span className="block">Твори</span>
+              <span className="text-accent relative block">
+                Исследуй
+                <PixelSprite
+                  rows={LEAF}
+                  colors={LEAF_COLORS}
+                  size={5}
+                  className="absolute -top-1 -right-9 hidden sm:block"
+                />
+              </span>
+            </h1>
+            <p className="text-ink-muted mt-6 max-w-sm text-base leading-relaxed sm:text-lg">
+              Сервер MineOrt IV: общий мир, где идеи превращаются в постройки.
+              Войдите через Telegram, примите правила и получите допуск.
+            </p>
+            <p className="mt-4">
+              <StatusBadge tone={server.tone}>{server.text}</StatusBadge>
+            </p>
+            <div className="mt-6 flex flex-wrap items-center gap-4">
+              <ButtonLink href={cta.href} className="min-h-14 px-8 text-base">
+                {cta.label}
+                <ArrowRight className="size-5" />
+              </ButtonLink>
+              {cta.secondary && (
+                <Link
+                  href={cta.secondary.href}
+                  className="inline-flex items-center gap-3 text-sm font-medium"
+                >
+                  <span className={circleClass}>
+                    <PlayIcon className="size-5" />
+                  </span>
+                  {cta.secondary.label}
+                </Link>
+              )}
+            </div>
+          </div>
+
+          <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/art/hero.svg"
+              alt="Воксельный остров с замком, рекой и путником, который сидит с собакой на утёсе"
+              className="relative mx-auto w-full max-w-[34rem] lg:-mt-6 lg:-mr-12 lg:w-[122%] lg:max-w-none"
+            />
+          </div>
+        </div>
+        {/* wave: the sky area ends in a soft curve */}
+        <svg
+          viewBox="0 0 1440 80"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+          className="absolute inset-x-0 bottom-0 h-12 w-full sm:h-16"
+        >
+          <path
+            d="M0 52 C 180 8, 420 78, 720 36 S 1180 6, 1440 40 L1440 80 L0 80 Z"
+            fill="var(--paper)"
+          />
+        </svg>
+      </section>
+
+      {/* ---------- About ---------- */}
+      <section
+        aria-labelledby="about"
+        id="about"
+        className="relative px-4 py-10 sm:px-8 lg:py-16"
+      >
+        <div className="grid items-center gap-14 lg:grid-cols-[1.1fr_.9fr]">
+          <div className="relative pr-6 pb-10 lg:pr-0">
+            <div
+              className={`${SKY} aspect-[4/3] overflow-hidden rounded-[1.75rem] shadow-[var(--shadow-card)] ring-4 ring-white/90`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/art/house.svg"
+                alt="Уютный деревянный дом с фонарём на лугу"
+                loading="lazy"
+                className="size-full object-cover"
+              />
+            </div>
+            <div
+              className={`${SKY} absolute -right-1 bottom-0 aspect-[5/4] w-[38%] overflow-hidden rounded-3xl shadow-[var(--shadow-card)] ring-4 ring-white/90 lg:right-[-1.5rem]`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/art/slime.svg"
+                alt="Добродушный зелёный куб-талисман"
+                loading="lazy"
+                className="size-full object-cover"
+              />
+            </div>
+            <PixelSprite
+              rows={LEAF}
+              colors={LEAF_COLORS}
+              size={6}
+              className="absolute -top-4 right-2 hidden rotate-12 opacity-80 lg:block"
+            />
+          </div>
+
+          <div className="border-line relative lg:border-l lg:pl-12">
+            <Eyebrow>О проекте</Eyebrow>
+            <h2
+              id="about-title"
+              className="font-pixel mt-4 text-4xl leading-tight sm:text-5xl"
+            >
+              Мир, который строим вместе
+            </h2>
+            <p className="text-ink-muted mt-5 max-w-md text-base leading-relaxed">
+              Строим, исследуем и придумываем новое вместе. Вход через Telegram,
+              ясные правила и допуск по приглашению или заявке.
+            </p>
+            <Link
+              href="/guide"
+              className="border-ink mt-6 inline-flex items-center gap-2 border-b-2 pb-0.5 text-sm font-semibold"
+            >
+              Как играть
+              <ArrowRight className="size-4" />
+            </Link>
+            <PixelSprite
+              rows={PICKAXE}
+              colors={PICKAXE_COLORS}
+              size={7}
+              className="pointer-events-none absolute -right-2 bottom-[-3.5rem] hidden opacity-90 xl:block"
+            />
+          </div>
         </div>
       </section>
 
-      <section aria-labelledby="rules" className="mb-10">
-        <h2 id="rules" className="mb-3 text-2xl font-bold">
-          Правила сервера
-        </h2>
-        <Card>
-          {excerpt ? (
-            <>
-              <p className="whitespace-pre-wrap">{excerpt}</p>
-              <p className="mt-3">
-                <Link href="/rules" className="text-brand-700 underline">
-                  Читать правила полностью
-                </Link>
-              </p>
-            </>
-          ) : (
-            <p className="text-ink-muted">Правила скоро будут опубликованы.</p>
-          )}
-        </Card>
+      {/* ---------- Worlds ---------- */}
+      <section aria-labelledby="worlds-title" className="px-4 py-6 sm:px-8">
+        <div className="mb-6 flex items-center gap-5">
+          <span className="bg-line h-px flex-1" aria-hidden="true" />
+          <h2 id="worlds-title" className="eyebrow">
+            Миры сервера
+          </h2>
+          <span className="bg-line h-px flex-1" aria-hidden="true" />
+        </div>
+        <FeaturedRow items={WORLDS} />
       </section>
 
-      <section id="about" aria-labelledby="about-title">
-        <h2 id="about-title" className="mb-3 text-2xl font-bold">
-          О проекте
-        </h2>
-        <p className="text-ink-muted max-w-prose">
-          Чтобы играть, войдите через Telegram, примите правила, укажите ник и
-          получите допуск по приглашению или заявке. Пошаговая инструкция есть в
-          разделе «Как играть».
-        </p>
+      {/* ---------- Quote ---------- */}
+      <section
+        aria-label="Девиз"
+        className="relative mt-12 overflow-hidden px-4 sm:px-8"
+      >
+        <div className="grid items-center lg:grid-cols-[.85fr_1.15fr]">
+          <figure className="relative z-10 py-6 lg:py-16">
+            <span
+              aria-hidden="true"
+              className="font-pixel text-accent block text-6xl leading-none"
+            >
+              “
+            </span>
+            <blockquote className="font-pixel -mt-2 max-w-sm text-4xl leading-tight sm:text-5xl">
+              Маленькие идеи — в большие миры.
+            </blockquote>
+            <span aria-hidden="true" className="bg-ink mt-5 block h-px w-16" />
+          </figure>
+          <div className="relative -mx-4 sm:-mx-8 lg:mx-0 lg:-mr-8">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/art/landscape.svg"
+              alt="Панорама: горы со снежными вершинами и лес"
+              loading="lazy"
+              className="w-full"
+              style={{
+                WebkitMaskImage:
+                  "linear-gradient(to right, transparent, #000 30%), linear-gradient(to bottom, #000 62%, transparent)",
+                maskImage:
+                  "linear-gradient(to right, transparent, #000 30%), linear-gradient(to bottom, #000 62%, transparent)",
+                WebkitMaskComposite: "source-in",
+                maskComposite: "intersect",
+              }}
+            />
+          </div>
+        </div>
       </section>
-    </div>
+
+      {/* ---------- Rules ---------- */}
+      <section aria-labelledby="rules" className="px-4 pt-12 sm:px-8">
+        <div className="bg-surface border-line rounded-[1.75rem] border p-6 sm:p-8">
+          <Eyebrow>Для новичков</Eyebrow>
+          <h2 id="rules" className="font-pixel mt-3 text-3xl sm:text-4xl">
+            Правила сервера
+          </h2>
+          {excerpt ? (
+            <>
+              <p className="text-ink-muted mt-4 max-w-2xl whitespace-pre-wrap">
+                {excerpt}
+              </p>
+              <Link
+                href="/rules"
+                className="border-ink mt-5 inline-flex items-center gap-2 border-b-2 pb-0.5 text-sm font-semibold"
+              >
+                Читать правила полностью
+                <ArrowRight className="size-4" />
+              </Link>
+            </>
+          ) : (
+            <p className="text-ink-muted mt-4">
+              Правила скоро будут опубликованы.
+            </p>
+          )}
+        </div>
+      </section>
+    </>
   );
 }

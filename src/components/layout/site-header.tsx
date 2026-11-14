@@ -2,21 +2,39 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { visibleMenu } from "@/lib/menu";
 import { ButtonLink } from "@/components/ui/button";
+import { ArrowUpRight } from "@/components/ui/icons";
 import { MobileNav } from "./mobile-nav";
+
+export function BrandMark() {
+  return (
+    <Link
+      href="/"
+      className="flex items-center gap-2.5"
+      aria-label="MineOrt: на главную"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/art/cube.svg"
+        alt=""
+        width={34}
+        height={34}
+        className="size-7 sm:size-[34px]"
+      />
+      <span className="font-pixel text-ink text-xl leading-none whitespace-nowrap sm:text-2xl">
+        MineOrt
+      </span>
+    </Link>
+  );
+}
 
 export async function SiteHeader() {
   await connection();
   const items = visibleMenu();
 
   return (
-    <header className="border-line bg-paper sticky top-0 z-30 border-b">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-4">
-        <Link
-          href="/"
-          className="text-brand-700 text-base font-bold whitespace-nowrap sm:text-lg"
-        >
-          MineOrt IV
-        </Link>
+    <header className="relative z-20">
+      <div className="flex min-h-[4.5rem] items-center justify-between gap-2 px-3 sm:gap-3 sm:px-8">
+        <BrandMark />
 
         <nav aria-label="Главное меню" className="hidden lg:block">
           <ul className="flex items-center gap-1">
@@ -24,17 +42,17 @@ export async function SiteHeader() {
               <li key={item.href + item.label} className="group relative">
                 <Link
                   href={item.href}
-                  className="hover:bg-surface flex min-h-11 items-center rounded-lg px-3 font-medium"
+                  className="hover:bg-brand-50 flex min-h-11 items-center rounded-full px-3.5 text-sm font-medium"
                 >
                   {item.label}
                 </Link>
                 {item.children && (
-                  <ul className="border-line bg-paper invisible absolute top-full left-0 min-w-52 rounded-lg border p-1 shadow-lg group-focus-within:visible group-hover:visible">
+                  <ul className="border-line bg-paper invisible absolute top-full left-0 z-30 min-w-56 rounded-2xl border p-1.5 shadow-[var(--shadow-card)] group-focus-within:visible group-hover:visible">
                     {item.children.map((child) => (
                       <li key={child.href}>
                         <Link
                           href={child.href}
-                          className="hover:bg-surface flex min-h-11 items-center rounded-md px-3"
+                          className="hover:bg-brand-50 flex min-h-11 items-center rounded-xl px-3 text-sm"
                         >
                           {child.label}
                         </Link>
@@ -49,9 +67,16 @@ export async function SiteHeader() {
 
         <div className="flex items-center gap-2">
           <div className="hidden lg:block">
-            <ButtonLink href="/start">Начать играть</ButtonLink>
+            <ButtonLink href="/start" className="min-h-11 px-5 text-sm">
+              Начать играть
+              <ArrowUpRight className="size-4" />
+            </ButtonLink>
           </div>
-          <ButtonLink href="/login" variant="secondary" className="px-3">
+          <ButtonLink
+            href="/login"
+            variant="secondary"
+            className="min-h-11 px-3.5 text-sm"
+          >
             Войти
           </ButtonLink>
           <MobileNav items={items} />

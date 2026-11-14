@@ -1,23 +1,32 @@
 @import "tailwindcss";
 
-/* Design tokens (US-E01-01): the single place for colour, type and state tokens.
+/* Design tokens. Palette from the brand board: grass #6BAF5D, dirt #B57A4E, cream #F5E6D3,
+   sky #A7D8FF, off-white #F9FAFB. Light theme only: the identity is a bright sky-and-grass world.
    The ORT Hertli emblem is not used until rights are confirmed (OD-39). */
 :root {
-  --paper: #ffffff;
-  --surface: #f4f8f3;
-  --ink: #14211a;
-  --ink-muted: #4a5a50;
-  --line: #cfdccf;
+  color-scheme: light;
 
-  --brand-50: #eef7ee;
-  --brand-100: #d7ecd8;
-  --brand-500: #3d9a4a;
-  --brand-600: #2b7a38;
-  --brand-700: #1f5f2a;
-  --brand-900: #123a19;
+  --sky: #a7d8ff;
+  --sky-soft: #dff0ff;
+  --cream: #f5e6d3;
+  --bark: #b57a4e;
 
-  --ok: #1f6b2c;
-  --ok-bg: #e3f4e5;
+  --paper: #fbf8f3; /* the page card */
+  --surface: #f6ecdd; /* soft panels on the card */
+  --ink: #2e2a24;
+  --ink-muted: #6a6254;
+  --line: #e6d9c4;
+
+  --brand-50: #eef6ea;
+  --brand-100: #dcebd5;
+  --brand-500: #6baf5d; /* fills and borders (palette green) */
+  --accent: #5a9b4c; /* large accent text: 3:1 on the page card */
+  --brand-600: #478035; /* buttons: white text passes AA */
+  --brand-700: #3c6e2d;
+  --brand-900: #2a4e20;
+
+  --ok: #2f6b2a;
+  --ok-bg: #e3f2dc;
   --warn: #7a4d00;
   --warn-bg: #fdf0d2;
   --danger: #a3261f;
@@ -25,38 +34,14 @@
   --info: #1d4f91;
   --info-bg: #e4eefb;
 
-  --focus: #0b57d0;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #0e1712;
-    --surface: #16231b;
-    --ink: #e9f2ea;
-    --ink-muted: #a9bcae;
-    --line: #2c4033;
-
-    --brand-50: #16231b;
-    --brand-100: #1f3526;
-    --brand-500: #5cc06b;
-    --brand-600: #8fdc9b;
-    --brand-700: #b3eabb;
-    --brand-900: #d7f5dc;
-
-    --ok: #8fdc9b;
-    --ok-bg: #173320;
-    --warn: #f0c36a;
-    --warn-bg: #382a0a;
-    --danger: #ff9a92;
-    --danger-bg: #3d1713;
-    --info: #9bc2f5;
-    --info-bg: #14263f;
-
-    --focus: #8ab4ff;
-  }
+  --focus: #1f5fd0;
 }
 
 @theme inline {
+  --color-sky: var(--sky);
+  --color-sky-soft: var(--sky-soft);
+  --color-cream: var(--cream);
+  --color-bark: var(--bark);
   --color-paper: var(--paper);
   --color-surface: var(--surface);
   --color-ink: var(--ink);
@@ -65,6 +50,7 @@
   --color-brand-50: var(--brand-50);
   --color-brand-100: var(--brand-100);
   --color-brand-500: var(--brand-500);
+  --color-accent: var(--accent);
   --color-brand-600: var(--brand-600);
   --color-brand-700: var(--brand-700);
   --color-brand-900: var(--brand-900);
@@ -78,15 +64,62 @@
   --color-info-bg: var(--info-bg);
   --color-focus: var(--focus);
   --font-sans: var(--font-inter), system-ui, sans-serif;
-  --font-mono: var(--font-mono), ui-monospace, monospace;
-  --radius-card: 0.75rem;
+  --font-pixel: var(--font-pixelify), var(--font-inter), monospace;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+  --radius-card: 1.25rem;
+  --shadow-card: 0 10px 30px rgba(52, 78, 40, 0.1);
+  --shadow-page: 0 24px 70px rgba(38, 86, 140, 0.22);
 }
 
 body {
-  background: var(--paper);
+  min-width: 320px;
   color: var(--ink);
   font-family: var(--font-sans);
-  min-width: 320px;
+  /* sky: bright blue at the top fading to a pale horizon, like the reference */
+  background:
+    radial-gradient(
+      1200px 600px at 85% -10%,
+      rgba(255, 255, 255, 0.75),
+      transparent 60%
+    ),
+    linear-gradient(180deg, #8fcaff 0%, #b9e0ff 38%, #dff0ff 100%) fixed;
+}
+
+/* Page card: the cream sheet that floats over the sky. */
+.page-card {
+  position: relative;
+  background: var(--paper);
+  border-radius: 1.75rem;
+  box-shadow: var(--shadow-page);
+}
+
+/* Page headings use the pixel face everywhere, as in the reference identity. */
+h1,
+h2 {
+  font-family: var(--font-pixelify), var(--font-inter), monospace;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.font-pixel {
+  font-family: var(--font-pixelify), var(--font-inter), monospace;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: none;
+}
+
+/* Small caps label, as in the reference ("A CREATIVE PORTFOLIO", "ABOUT ME"). */
+.eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Blocky pixel art must stay crisp. */
+.pixelated {
+  image-rendering: pixelated;
 }
 
 /* Visible keyboard focus everywhere (NFR-A11Y). */
@@ -99,5 +132,6 @@ body {
   * {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
