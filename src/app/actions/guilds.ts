@@ -6,7 +6,9 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { requireStepUp } from "@/lib/auth/guards";
 import { safeReturnTo } from "@/lib/auth/session-policy";
 import {
+  adminEditGuild,
   archiveGuild,
+  editGuildProfile,
   assignRank,
   createGuild,
   decideRequest,
@@ -187,5 +189,31 @@ export async function savePrivacyAction(formData: FormData) {
         bio: str(formData.get("bio")),
       }),
     { flag: "ff_p1a" },
+  );
+}
+
+export async function editGuildProfileAction(formData: FormData) {
+  return run(formData, "/dashboard", "profile", (uid) =>
+    editGuildProfile(
+      uid,
+      str(formData.get("guild_id")),
+      str(formData.get("description")),
+    ),
+  );
+}
+
+export async function adminEditGuildAction(formData: FormData) {
+  return run(
+    formData,
+    "/admin/guilds",
+    "edited",
+    (uid) =>
+      adminEditGuild(uid, str(formData.get("guild_id")), {
+        name: str(formData.get("name")),
+        color: str(formData.get("color")),
+        description: str(formData.get("description")),
+        maxMembers: Number.parseInt(str(formData.get("max_members")), 10),
+      }),
+    { adminStepUp: true },
   );
 }

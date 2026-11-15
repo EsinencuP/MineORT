@@ -166,7 +166,7 @@ test("an admin creates a guild with a fresh TOTP; a taken tag is refused; the pa
   const admin = await asUser(browser, "alice");
   await stepUpTo(admin, "/admin/guilds");
   await admin.getByText("＋ Создать гильдию").click();
-  await admin.getByLabel("Название", { exact: true }).fill(`Тест ${RUN}`);
+  await admin.locator("#g-name").fill(`Тест ${RUN}`);
   await admin.getByLabel(/^Адрес/).fill(SLUG);
   await admin.getByLabel(/^Тег/).fill(TAG);
   await admin
@@ -179,7 +179,7 @@ test("an admin creates a guild with a fresh TOTP; a taken tag is refused; the pa
 
   // the same tag again
   await admin.getByText("＋ Создать гильдию").click();
-  await admin.getByLabel("Название", { exact: true }).fill(`Другая ${RUN}`);
+  await admin.locator("#g-name").fill(`Другая ${RUN}`);
   await admin.getByLabel(/^Адрес/).fill(`${SLUG}-b`);
   await admin.getByLabel(/^Тег/).fill(TAG);
   await admin
@@ -333,6 +333,75 @@ test("a manager cannot reach the admin area or the manage page of a foreign guil
   const dave = await asUser(browser, "dave");
   await dave.goto(`/guilds/${SLUG}`);
   await expect(dave.getByRole("link", { name: "Управление" })).toBeVisible();
+});
+
+test("leaders edit the description; an admin edits name, colour and size; others cannot", async ({
+  browser,
+}) => {
+  const bob = await asUser(browser, "bob");
+  await bob.goto(`/guilds/${SLUG}/manage`);
+  await bob.getByLabel(/Что видят гости/).fill("Строим мосты и ночные рынки.");
+  await bob.getByRole("button", { name: "Сохранить описание" }).click();
+  await expect(bob.getByText("Описание гильдии сохранено.")).toBeVisible();
+  const guest = await (
+    await browser.newContext({ baseURL: test.info().project.use.baseURL })
+  ).newPage();
+  await guest.goto(`/guilds/${SLUG}`);
+  await expect(guest.getByText("Строим мосты и ночные рынки.")).toBeVisible();
+
+  // the deputy may, a member of another guild may not
+  expect(
+    await rpc("guild_edit_profile", {
+      p_actor: ids.dave,
+      p_guild: gid,
+      p_description: "Описание от заместителя",
+    }),
+  ).toBeNull();
+  expect(
+    await rpc("guild_edit_profile", {
+      p_actor: ids.carol,
+      p_guild: gid,
+      p_description: "взлом",
+    }),
+  ).toBe("guild_forbidden");
+  expect(
+    await rpc("guild_admin_edit", {
+      p_actor: ids.bob,
+      p_guild: gid,
+      p_name: "Взлом",
+      p_color: "#000000",
+      p_description: "",
+      p_max_members: 50,
+    }),
+  ).toBe("forbidden");
+
+  const admin = await asUser(browser, "alice");
+  await stepUpTo(admin, "/admin/guilds");
+  const card = admin.locator("li", { hasText: `Тест ${RUN}` });
+  await card.locator("summary", { hasText: "Изменить" }).click();
+  // fewer seats than members is refused
+  await card.getByLabel("Мест в гильдии").fill("2");
+  await card.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await expect(admin.getByText(/Проверьте поля/)).toBeVisible();
+  const again = admin.locator("li", { hasText: `Тест ${RUN}` });
+  await again.locator("summary", { hasText: "Изменить" }).click();
+  await again
+    .getByLabel("Название", { exact: true })
+    .fill(`Тест ${RUN} обновлён`);
+  await again.getByLabel("Мест в гильдии").fill("30");
+  await again.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await expect(admin.getByText("Гильдия изменена.")).toBeVisible();
+  const { data: g } = await db
+    .from("guilds")
+    .select("name, max_members")
+    .eq("id", gid)
+    .single();
+  expect(g).toEqual({ name: `Тест ${RUN} обновлён`, max_members: 30 });
+  // restore the name the later tests look for
+  await db
+    .from("guilds")
+    .update({ name: `Тест ${RUN}` })
+    .eq("id", gid);
 });
 
 test("kicking takes the rights away at once; members have no management rights; the last owner cannot leave", async ({

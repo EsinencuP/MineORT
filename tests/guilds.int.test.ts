@@ -170,3 +170,40 @@ describe.skipIf(!enabled)("nickname lookup is an exact match", () => {
     }
   });
 });
+
+describe.skipIf(!enabled)("guilds before the game login exists", () => {
+  it("lets a player with a reserved (not yet confirmed) nickname own a guild and shows them in the catalog", async () => {
+    const admin = await player("admin");
+    const owner = await player();
+    await db()
+      .from("minecraft_identities")
+      .update({ binding_status: "reserved", game_identity: "unconfirmed" })
+      .eq("user_id", owner.userId);
+    const tag = "R" + randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase();
+    const id = await createGuild(admin.userId, {
+      name: "Резерв " + tag,
+      slug: "rs-" + tag.toLowerCase(),
+      tag,
+      color: "#1e88e5",
+      description: "",
+      ownerNick: owner.nickname,
+    });
+    try {
+      const profile = await getPlayerProfile(owner.nickname);
+      expect(profile?.guild_tag).toBe(tag);
+      expect(profile?.rank_name).toBe("Глава");
+    } finally {
+      await db().from("guild_members").delete().eq("guild_id", id);
+      await db().from("guild_ranks").delete().eq("guild_id", id);
+      await db().from("guilds").delete().eq("id", id);
+      await db()
+        .from("access_memberships")
+        .delete()
+        .in("user_id", [admin.userId, owner.userId]);
+      await db()
+        .from("minecraft_identities")
+        .delete()
+        .in("user_id", [admin.userId, owner.userId]);
+    }
+  });
+});

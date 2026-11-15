@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
+  adminEditGuildAction,
   archiveGuildAction,
   createGuildAction,
   transferOwnerAction,
@@ -21,6 +22,7 @@ const OK_TEXTS = {
   created: "Гильдия создана.",
   transferred: "Главенство передано.",
   archived: "Гильдия распущена.",
+  edited: "Гильдия изменена.",
 };
 
 export default async function AdminGuildsPage({
@@ -162,6 +164,80 @@ export default async function AdminGuildsPage({
                 </div>
                 {g.status === "active" && (
                   <div className="flex flex-wrap gap-4">
+                    <details>
+                      <summary className="text-brand-700 min-h-11 cursor-pointer py-2 text-sm font-semibold">
+                        Изменить
+                      </summary>
+                      <form
+                        action={adminEditGuildAction}
+                        className="mt-2 flex flex-col gap-2"
+                      >
+                        <input type="hidden" name="guild_id" value={g.id} />
+                        <label
+                          className="text-sm font-medium"
+                          htmlFor={`en-${g.id}`}
+                        >
+                          Название
+                        </label>
+                        <input
+                          id={`en-${g.id}`}
+                          name="name"
+                          required
+                          minLength={3}
+                          maxLength={40}
+                          defaultValue={g.name}
+                          className={input}
+                        />
+                        <label
+                          className="text-sm font-medium"
+                          htmlFor={`ec-${g.id}`}
+                        >
+                          Цвет
+                        </label>
+                        <input
+                          id={`ec-${g.id}`}
+                          name="color"
+                          type="color"
+                          defaultValue={g.color}
+                          className="border-line bg-paper min-h-11 w-24 rounded-xl border p-1"
+                        />
+                        <label
+                          className="text-sm font-medium"
+                          htmlFor={`em-${g.id}`}
+                        >
+                          Мест в гильдии
+                        </label>
+                        <input
+                          id={`em-${g.id}`}
+                          name="max_members"
+                          type="number"
+                          min={1}
+                          max={500}
+                          defaultValue={g.maxMembers}
+                          className={input}
+                        />
+                        <label
+                          className="text-sm font-medium"
+                          htmlFor={`ed-${g.id}`}
+                        >
+                          Описание
+                        </label>
+                        <textarea
+                          id={`ed-${g.id}`}
+                          name="description"
+                          rows={3}
+                          maxLength={1000}
+                          defaultValue={g.description}
+                          className="bg-paper text-ink border-line rounded-xl border px-3 py-2"
+                        />
+                        <PendingButton
+                          className="self-start"
+                          pendingText="Сохраняем…"
+                        >
+                          Сохранить
+                        </PendingButton>
+                      </form>
+                    </details>
                     <details>
                       <summary className="text-brand-700 min-h-11 cursor-pointer py-2 text-sm font-semibold">
                         Передать главенство

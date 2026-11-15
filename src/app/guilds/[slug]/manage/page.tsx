@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   assignRankAction,
+  editGuildProfileAction,
   decideRequestAction,
   inviteMemberAction,
   kickMemberAction,
@@ -29,6 +30,7 @@ const OK_TEXTS = {
   invited: "Приглашение отправлено.",
   approved: "Игрок принят в гильдию.",
   rejected: "Заявка отклонена.",
+  profile: "Описание гильдии сохранено.",
 };
 
 export default async function ManageGuildPage({
@@ -71,6 +73,35 @@ export default async function ManageGuildPage({
 
       <div className="mt-5 flex flex-col gap-6">
         <Notice error={sp.error} ok={sp.ok} okTexts={OK_TEXTS} />
+
+        <section aria-labelledby="about" className="flex flex-col gap-3">
+          <h2 id="about" className="text-2xl">
+            Описание
+          </h2>
+          <Card>
+            <form
+              action={editGuildProfileAction}
+              className="flex flex-col gap-3"
+            >
+              <input type="hidden" name="guild_id" value={guild.id} />
+              <input type="hidden" name="return_to" value={back} />
+              <label htmlFor="g-about" className="text-sm font-medium">
+                Что видят гости на странице гильдии (до 1000 символов)
+              </label>
+              <textarea
+                id="g-about"
+                name="description"
+                rows={4}
+                maxLength={1000}
+                defaultValue={guild.description}
+                className="bg-paper text-ink border-line rounded-xl border px-3 py-2"
+              />
+              <PendingButton className="self-start" pendingText="Сохраняем…">
+                Сохранить описание
+              </PendingButton>
+            </form>
+          </Card>
+        </section>
 
         <section aria-labelledby="members" className="flex flex-col gap-3">
           <h2 id="members" className="text-2xl">

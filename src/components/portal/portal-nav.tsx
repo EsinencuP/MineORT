@@ -21,6 +21,8 @@ const SECTIONS: {
   { label: "События", href: "/social/calendar", flag: "ff_p1b_social" },
   { label: "Проекты", href: "" },
   { label: "Сообщество", href: "/social", flag: "ff_p1a" },
+  { label: "Игроки", href: "/players", flag: "ff_p1a" },
+  { label: "Гильдии", href: "/players?tab=guilds", flag: "ff_p1b_guilds" },
   { label: "Галерея", href: "/social/gallery", flag: "ff_p1a" },
   { label: "Голосования", href: "/social/polls", flag: "ff_p1b_social" },
 ];

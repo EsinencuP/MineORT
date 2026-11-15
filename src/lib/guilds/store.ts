@@ -194,6 +194,31 @@ export async function transferOwner(
   });
 }
 
+export const editGuildProfile = (
+  actor: string,
+  guild: string,
+  description: string,
+) =>
+  call(actor, "guild_edit_profile", {
+    p_actor: actor,
+    p_guild: guild,
+    p_description: description,
+  });
+
+export const adminEditGuild = (
+  actor: string,
+  guild: string,
+  i: { name: string; color: string; description: string; maxMembers: number },
+) =>
+  call(actor, "guild_admin_edit", {
+    p_actor: actor,
+    p_guild: guild,
+    p_name: i.name,
+    p_color: i.color,
+    p_description: i.description,
+    p_max_members: i.maxMembers,
+  });
+
 export const archiveGuild = (
   actor: string,
   guild: string,
@@ -450,13 +475,14 @@ export async function getMyGuild(userId: string) {
 export async function getGuildInternal(slug: string) {
   const { data } = await db()
     .from("guilds")
-    .select("id, slug, name, status, needs_owner, max_members")
+    .select("id, slug, name, description, status, needs_owner, max_members")
     .eq("slug", slug)
     .maybeSingle();
   return data as {
     id: string;
     slug: string;
     name: string;
+    description: string;
     status: "active" | "archived";
     needs_owner: boolean;
     max_members: number;
@@ -563,7 +589,9 @@ export async function getManageData(guildId: string) {
 export async function listGuildsAdmin() {
   const { data, error } = await db()
     .from("guilds")
-    .select("id, slug, name, tag, status, needs_owner, created_at")
+    .select(
+      "id, slug, name, tag, color, description, max_members, status, needs_owner, created_at",
+    )
     .order("created_at", { ascending: false });
   if (error) throw new Error(`guilds: ${error.message}`);
   const guilds = data ?? [];
@@ -596,6 +624,9 @@ export async function listGuildsAdmin() {
       slug: g.slug as string,
       name: g.name as string,
       tag: g.tag as string,
+      color: g.color as string,
+      description: g.description as string,
+      maxMembers: g.max_members as number,
       status: g.status as "active" | "archived",
       needsOwner: g.needs_owner as boolean,
       members: ms.length,
