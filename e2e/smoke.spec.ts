@@ -33,7 +33,9 @@ test("admin area is closed to guests", async ({ request }) => {
 
 test("flagged routes are 404 when waves are off", async ({ request }) => {
   test.skip(
-    process.env.FF_P1A === "true" || process.env.FF_P1B_SOCIAL === "true",
+    process.env.FF_P1A === "true" ||
+      process.env.FF_P1B_SOCIAL === "true" ||
+      process.env.FF_P1B_GUILDS === "true",
     "waves are switched on",
   );
   for (const path of ["/social", "/players", "/map", "/social/polls"]) {

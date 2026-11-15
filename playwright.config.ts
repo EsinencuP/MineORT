@@ -41,6 +41,7 @@ export default defineConfig({
           FF_P1A: process.env.FF_P1A ?? "",
           FF_P1B: process.env.FF_P1B ?? "",
           FF_P1B_SOCIAL: process.env.FF_P1B_SOCIAL ?? "",
+          FF_P1B_GUILDS: process.env.FF_P1B_GUILDS ?? "",
         },
         timeout: 180_000,
       },

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireStaff } from "@/lib/auth/guards";
+import { isEnabled } from "@/lib/flags";
 
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   // The layout must not redirect to /admin/security itself (that page lives under it): each page checks TOTP.
@@ -12,6 +13,9 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
       ? [
           { href: "/admin/players", label: "Игроки" },
           { href: "/admin/invitations", label: "Приглашения" },
+          ...(isEnabled("ff_p1b_guilds")
+            ? [{ href: "/admin/guilds", label: "Гильдии" }]
+            : []),
           { href: "/admin/rules", label: "Правила" },
           { href: "/admin/guides", label: "Гайдбук" },
           { href: "/admin/audit", label: "Аудит" },

@@ -20,6 +20,18 @@ export const TEST_USERS = {
     name: "Test Carol",
     role: "player",
   },
+  dave: {
+    telegramId: "9990000004",
+    username: "test_dave",
+    name: "Test Dave",
+    role: "player",
+  },
+  erin: {
+    telegramId: "9990000005",
+    username: "test_erin",
+    name: "Test Erin",
+    role: "player",
+  },
 } as const;
 export type TestUserKey = keyof typeof TEST_USERS;
 

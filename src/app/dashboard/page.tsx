@@ -15,6 +15,9 @@ import { getStageForUser } from "@/lib/onboarding/server";
 import { safely } from "@/lib/safe";
 import { isEnabled } from "@/lib/flags";
 import { getPublicServerInfo } from "@/lib/site/server-status";
+import { DashboardGuild } from "@/components/guilds/dashboard-guild";
+import { PrivacyForm } from "@/components/guilds/privacy-form";
+import { getMyGuild, getPrivacy } from "@/lib/guilds/store";
 import { nextEvent } from "@/lib/social/events";
 import { nextOpenPoll } from "@/lib/social/polls";
 import { latestNews } from "@/lib/social/store";
@@ -38,6 +41,13 @@ export default async function DashboardPage({
     : null;
   const poll = social
     ? await safely("dashboard poll", () => nextOpenPoll(user.userId), null)
+    : null;
+  const guildsOn = isEnabled("ff_p1b_guilds");
+  const myGuild = guildsOn
+    ? await safely("my guild", () => getMyGuild(user.userId), null)
+    : null;
+  const privacy = isEnabled("ff_p1a")
+    ? await safely("privacy", () => getPrivacy(user.userId), null)
     : null;
   const news = isEnabled("ff_p1a")
     ? await safely("dashboard news", () => latestNews(4), [])
@@ -63,7 +73,21 @@ export default async function DashboardPage({
     <>
       {(sp.error || sp.ok) && (
         <div className="mx-4 mt-2 sm:mx-8">
-          <Notice error={sp.error} ok={sp.ok} />
+          <Notice
+            error={sp.error}
+            ok={sp.ok}
+            okTexts={{
+              joined: "Вы вступили в гильдию.",
+              declined: "Приглашение отклонено.",
+              left: "Вы покинули гильдию.",
+              approved: "Игрок принят в гильдию.",
+              rejected: "Заявка отклонена.",
+              rank: "Ранг изменён.",
+              kicked: "Участник исключён.",
+              invited: "Приглашение отправлено.",
+              privacy: "Настройки публичности сохранены.",
+            }}
+          />
         </div>
       )}
       <DashboardView
@@ -112,6 +136,15 @@ export default async function DashboardPage({
           when: new Date(n.created_at).toLocaleDateString("ru-RU"),
           href: "/social?f=news",
         }))}
+        guildBlock={
+          myGuild && (
+            <DashboardGuild
+              guild={myGuild.guild}
+              invitations={myGuild.invitations}
+            />
+          )
+        }
+        privacyBlock={privacy && <PrivacyForm value={privacy} />}
         botConnected={false}
         canInvite={user.site_role === "admin"}
         supportContact={settings.support_contact || null}

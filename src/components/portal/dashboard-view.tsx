@@ -52,6 +52,10 @@ export type DashboardProps = {
   settings: { rulesAccepted: boolean };
   /** Slot for the account actions (logout, delete) that need real forms. */
   accountActions?: ReactNode;
+  /** "My guild" and invitations (shown when the guild wave is on). */
+  guildBlock?: ReactNode;
+  /** Profile privacy form (shown when the player catalog is on). */
+  privacyBlock?: ReactNode;
 };
 
 const iconCls = "size-5";
@@ -398,6 +402,12 @@ export function DashboardView(p: DashboardProps) {
           <NotifyCard connected={p.botConnected} />
         </div>
 
+        {p.guildBlock && (
+          <Section title="Моя гильдия" id="guild">
+            {p.guildBlock}
+          </Section>
+        )}
+
         {/* quick actions */}
         <Section title="Быстрые действия" id="quick">
           <QuickActions
@@ -459,6 +469,7 @@ export function DashboardView(p: DashboardProps) {
               </div>
             )}
           </Card>
+          {p.privacyBlock}
         </Section>
       </div>
     </div>
