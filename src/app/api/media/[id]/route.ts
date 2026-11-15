@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isEnabled } from "@/lib/flags";
-import { mediaSignedUrl } from "@/lib/social/media";
+import { mediaAccess } from "@/lib/social/media";
 import { getViewer } from "@/lib/social/viewer";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +15,16 @@ export async function GET(
   if (!isEnabled("ff_p1a")) return new NextResponse(null, { status: 404 });
   const { id } = await ctx.params;
   if (!UUID.test(id)) return new NextResponse(null, { status: 404 });
-  const url = await mediaSignedUrl(id, await getViewer());
-  if (!url) return new NextResponse(null, { status: 404 });
+  const found = await mediaAccess(id, getViewer);
+  if (!found) return new NextResponse(null, { status: 404 });
   return new NextResponse(null, {
     status: 302,
-    headers: { Location: url, "Cache-Control": "private, max-age=60" },
+    headers: {
+      Location: found.url,
+      // Shared files keep the redirect for 5 minutes (the signed link lives for 10); personal ones for 1.
+      "Cache-Control": found.shared
+        ? "private, max-age=300"
+        : "private, max-age=60",
+    },
   });
 }

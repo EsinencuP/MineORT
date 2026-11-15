@@ -1,40 +1,79 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { isEnabled, type FlagName } from "@/lib/flags";
 import { MinecraftAvatar } from "./minecraft-avatar";
 import { PortalTabs, type PortalTab } from "./portal-tabs";
 
 export type PortalNavItem = PortalTab;
 
-/** Sections of the portal. A section without a live page is shown as "скоро", never as a dead link. */
-const SECTIONS: {
-  label: string;
-  href: string;
-  flag?: FlagName;
-  always?: boolean;
-  also?: string[];
-}[] = [
-  { label: "Мой MineOrt", href: "/dashboard", always: true },
-  { label: "Карта мира", href: "/map", flag: "ff_p1c_atlas" },
-  { label: "Гайдбук", href: "/guide", always: true },
-  { label: "События", href: "/social/calendar", flag: "ff_p1b_social" },
-  { label: "Проекты", href: "/social/projects", flag: "ff_p1a" },
-  { label: "Лента", href: "/social", flag: "ff_p1a" },
-  { label: "Игроки", href: "/players", flag: "ff_p1a" },
+type Leaf = { label: string; href: string; flag?: FlagName; also?: string[] };
+
+/**
+ * Sections of the portal, grouped like the top menu: a short first row of sections and, under it,
+ * the pages of the section you are in. A section whose feature is switched off is left out, never
+ * shown as a dead item (the quick actions on the dashboard say "скоро" for the map instead).
+ */
+const GROUPS: (Leaf & { children?: Leaf[] })[] = [
+  { label: "Мой MineOrt", href: "/dashboard" },
   {
-    label: "Гильдии",
-    href: "/players?tab=guilds",
-    flag: "ff_p1b_guilds",
-    also: ["/guilds"],
+    label: "Общение",
+    href: "/social",
+    flag: "ff_p1a",
+    children: [
+      { label: "Лента", href: "/social" },
+      { label: "Галерея", href: "/social/gallery" },
+      { label: "Проекты", href: "/social/projects" },
+      { label: "События", href: "/social/calendar", flag: "ff_p1b_social" },
+      { label: "Голосования", href: "/social/polls", flag: "ff_p1b_social" },
+    ],
   },
-  { label: "Галерея", href: "/social/gallery", flag: "ff_p1a" },
-  { label: "Голосования", href: "/social/polls", flag: "ff_p1b_social" },
+  {
+    label: "Игроки",
+    href: "/players",
+    flag: "ff_p1a",
+    also: ["/guilds"],
+    children: [
+      { label: "Игроки", href: "/players" },
+      {
+        label: "Гильдии",
+        href: "/players?tab=guilds",
+        flag: "ff_p1b_guilds",
+        also: ["/guilds"],
+      },
+    ],
+  },
+  { label: "Гайдбук", href: "/guide" },
+  { label: "Карта мира", href: "/map", flag: "ff_p1c_atlas" },
 ];
 
 export function portalItems(): PortalNavItem[] {
-  return SECTIONS.map((s) => {
-    const live = s.always || (s.flag && s.href && isEnabled(s.flag));
-    return { label: s.label, href: live ? s.href : null, also: s.also };
+  const on = (l: Leaf) => !l.flag || isEnabled(l.flag);
+  return GROUPS.filter(on).map(({ children, ...g }) => {
+    const kids = (children ?? []).filter(on);
+    return {
+      ...g,
+      // one page is not a section: a group with a single child is just a link
+      children: kids.length > 1 ? kids : undefined,
+    };
   });
+}
+
+/**
+ * What the bar shows while the address is being read (and in a statically built page, where it
+ * cannot be known): the same tabs, none of them marked as current.
+ */
+function TabsFallback({ items }: { items: PortalNavItem[] }) {
+  return (
+    <ul className="flex min-w-0 flex-1 flex-wrap gap-1 pb-1">
+      {items.map((i) => (
+        <li key={i.label} className="shrink-0">
+          <span className="text-ink-muted flex min-h-11 items-center rounded-full px-4 text-sm font-semibold whitespace-nowrap">
+            {i.label}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** The same section bar for the shared layouts of social, players, guilds and the guide. */
@@ -44,7 +83,9 @@ export function SectionNav() {
       aria-label="Разделы портала"
       className="mx-4 flex items-center gap-2 pt-1 sm:mx-8"
     >
-      <PortalTabs items={portalItems()} />
+      <Suspense fallback={<TabsFallback items={portalItems()} />}>
+        <PortalTabs items={portalItems()} />
+      </Suspense>
     </nav>
   );
 }
@@ -61,7 +102,9 @@ export function PortalNav({
       aria-label="Разделы портала"
       className="mx-4 flex items-center gap-2 sm:mx-8"
     >
-      <PortalTabs items={items} />
+      <Suspense fallback={<TabsFallback items={items} />}>
+        <PortalTabs items={items} />
+      </Suspense>
       <div className="flex shrink-0 items-center gap-2">
         <span
           title="Уведомления появятся в ближайшем обновлении"

@@ -156,7 +156,7 @@ const activeData: Partial<DashboardProps> = {
     place: "Спавн, площадь Ветров",
     participants: 14,
     joined: false,
-    coverSrc: "/art/house.svg",
+    coverSrc: "/art/house.webp",
   },
   projects: [
     {
@@ -166,7 +166,7 @@ const activeData: Partial<DashboardProps> = {
       progressLabel: "Собрано ресурсов",
       role: "Строитель",
       next: "Принести 3 стака железа",
-      coverSrc: "/art/meadow.svg",
+      coverSrc: "/art/meadow.webp",
     },
     {
       title: "Вишнёвый сад",
@@ -175,7 +175,7 @@ const activeData: Partial<DashboardProps> = {
       progressLabel: "Готовность",
       role: "Ландшафт",
       next: "Посадить деревья на южном берегу",
-      coverSrc: "/art/cherry.svg",
+      coverSrc: "/art/cherry.webp",
     },
   ],
   vote: {

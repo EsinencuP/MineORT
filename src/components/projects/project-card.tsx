@@ -15,10 +15,10 @@ const TONE: Record<ProjectStatus, BadgeTone> = {
   cancelled: "neutral",
 };
 const FALLBACK_COVER: Record<ProjectStatus, string> = {
-  recruiting: "/art/meadow.svg",
-  in_progress: "/art/house.svg",
-  done: "/art/cherry.svg",
-  cancelled: "/art/snow.svg",
+  recruiting: "/art/meadow.webp",
+  in_progress: "/art/house.webp",
+  done: "/art/cherry.webp",
+  cancelled: "/art/snow.webp",
 };
 
 export const coverOf = (p: {

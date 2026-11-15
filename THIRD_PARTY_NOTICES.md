@@ -4,7 +4,8 @@
 
 | Font                                                 | Use                                             | Licence / source                                                                                                   |
 | ---------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Modula (AlphabetFan2014, FontStruct)                 | Main face: interface and text                   | **FontStruct Non-Commercial License** (https://fontstruct.com/fontstructions/show/2975272/modula-15)               |
+| Modula (AlphabetFan2014, FontStruct)                 | Headings, buttons, menus and short labels        | **FontStruct Non-Commercial License** (https://fontstruct.com/fontstructions/show/2975272/modula-15)               |
+| Inter (Rasmus Andersson)                             | Reading text: paragraphs, descriptions, forms   | SIL Open Font License 1.1 (https://openfontlicense.org), loaded through next/font                                  |
 | Pixar One Regular / Bold (Vasiliy Shishkin, 2012)    | Display face: page titles, labels, the wordmark | "Copyright (c) 2012 by Vasiliy Shishkin. All rights reserved."; distributors list it as "Free", terms not included |
 | [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | Code and server addresses                       | SIL Open Font License 1.1                                                                                          |
 

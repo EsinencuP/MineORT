@@ -12,7 +12,7 @@ export function BrandMark() {
   return (
     <Link
       href="/"
-      className="flex items-center gap-2.5"
+      className="flex items-center gap-2.5 xl:shrink-0"
       aria-label="MineOrt V: на главную"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -46,7 +46,7 @@ export async function SiteHeader() {
           <div className="hidden min-[380px]:block">
             <ThemeToggle />
           </div>
-          <div className="hidden lg:block">
+          <div className="hidden xl:block">
             <ButtonLink
               href="/start"
               className="min-h-11 px-5 text-sm whitespace-nowrap"

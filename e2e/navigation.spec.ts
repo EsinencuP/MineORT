@@ -70,3 +70,37 @@ test("the mobile menu closes once the new page has arrived", async ({
   await expect(page.locator("#mobile-menu")).toBeHidden();
   await expect(page.getByRole("button", { name: "Меню" })).toBeVisible();
 });
+
+test("the section bar is short: sections in one row, the pages of the open one below", async ({
+  page,
+}) => {
+  test.skip(process.env.FF_P1A !== "true", "needs the social wave");
+  await page.goto("/social/gallery");
+  const bar = page.getByRole("navigation", { name: "Разделы портала" });
+  // first row: at most five sections, none of them hidden behind a scroll
+  const top = bar.locator("> div > ul").first().getByRole("link");
+  expect(await top.count()).toBeLessThanOrEqual(5);
+  for (const link of await top.all()) await expect(link).toBeVisible();
+  // second row: the pages of «Общение», the gallery is the current one
+  const sub = bar.getByRole("list", { name: "Общение" });
+  await expect(sub.getByRole("link", { name: "Галерея" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(sub.getByRole("link", { name: "Проекты" })).toBeVisible();
+});
+
+test("reading text is not set in the pixel face", async ({ page }) => {
+  await page.goto("/");
+  const fonts = await page.evaluate(() => {
+    const ff = (sel: string) =>
+      getComputedStyle(document.querySelector(sel)!).fontFamily;
+    return {
+      p: ff("main p:not(.eyebrow)"),
+      h2: ff("main h2"),
+      button: ff("header a"),
+    };
+  });
+  expect(fonts.p).toMatch(/inter/i);
+  expect(fonts.h2).toMatch(/modula/i);
+});

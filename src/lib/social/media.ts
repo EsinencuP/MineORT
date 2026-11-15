@@ -216,14 +216,46 @@ export async function purgeExpiredMedia(limit = 200) {
   return rows.length;
 }
 
+/** True when anybody may fetch this file: public, approved and in the gallery, a post or a cover. */
+async function isShownToEveryone(
+  id: string,
+  m: { visibility: string; moderation_status: string },
+): Promise<boolean> {
+  if (m.visibility !== "public" || m.moderation_status !== "approved")
+    return false;
+  const { data: atts } = await db()
+    .from("media_attachments")
+    .select("target_type, target_id")
+    .eq("media_id", id);
+  const list = atts ?? [];
+  if (list.some((a) => a.target_type === "gallery")) return true;
+  if (await isCoverOfOpenProject(id)) return true;
+  const postIds = list
+    .filter((a) => a.target_type === "post")
+    .map((a) => a.target_id as string);
+  if (postIds.length === 0) return false;
+  const { count } = await db()
+    .from("posts")
+    .select("id", { count: "exact", head: true })
+    .in("id", postIds)
+    .eq("visibility", "public")
+    .eq("moderation_status", "approved")
+    .is("deleted_at", null);
+  return (count ?? 0) > 0;
+}
+
 /**
  * May this viewer fetch the file? Owner and staff always (unless deleted); everybody else only
  * public, approved media that is in the public gallery or on a visible public post.
+ *
+ * `viewer` may be a function: for media that everybody can see the viewer is never looked up (a
+ * gallery page asks for dozens of thumbnails, and each lookup is several database round trips).
+ * `shared` tells the caller the answer does not depend on who asks, so it may be cached longer.
  */
-export async function mediaSignedUrl(
+export async function mediaAccess(
   id: string,
-  viewer: Viewer,
-): Promise<string | null> {
+  viewer: Viewer | (() => Promise<Viewer>),
+): Promise<{ url: string; shared: boolean } | null> {
   const { data: m } = await db()
     .from("media")
     .select(
@@ -232,37 +264,23 @@ export async function mediaSignedUrl(
     .eq("id", id)
     .maybeSingle();
   if (!m || m.deleted_at) return null;
-  const owner = viewer.userId === m.uploader_id;
-  let allowed = owner || viewer.canModerate;
-  if (
-    !allowed &&
-    m.visibility === "public" &&
-    m.moderation_status === "approved"
-  ) {
-    const { data: atts } = await db()
-      .from("media_attachments")
-      .select("target_type, target_id")
-      .eq("media_id", id);
-    const list = atts ?? [];
-    if (list.some((a) => a.target_type === "gallery")) allowed = true;
-    else if (await isCoverOfOpenProject(id)) allowed = true;
-    else {
-      const postIds = list
-        .filter((a) => a.target_type === "post")
-        .map((a) => a.target_id as string);
-      if (postIds.length > 0) {
-        const { count } = await db()
-          .from("posts")
-          .select("id", { count: "exact", head: true })
-          .in("id", postIds)
-          .eq("visibility", "public")
-          .eq("moderation_status", "approved")
-          .is("deleted_at", null);
-        allowed = (count ?? 0) > 0;
-      }
-    }
+  const shared = await isShownToEveryone(id, m);
+  if (!shared) {
+    const who = typeof viewer === "function" ? await viewer() : viewer;
+    if (who.userId !== m.uploader_id && !who.canModerate) return null;
   }
-  if (!allowed) return null;
-  const { data: signed } = await storage().createSignedUrl(m.storage_key, 120);
-  return signed?.signedUrl ?? null;
+  // A file that everybody can see keeps its link a little longer: the browser then reuses the
+  // redirect instead of asking the server again for every image on every page.
+  const { data: signed } = await storage().createSignedUrl(
+    m.storage_key,
+    shared ? 600 : 120,
+  );
+  return signed?.signedUrl ? { url: signed.signedUrl, shared } : null;
+}
+
+export async function mediaSignedUrl(
+  id: string,
+  viewer: Viewer,
+): Promise<string | null> {
+  return (await mediaAccess(id, viewer))?.url ?? null;
 }

@@ -140,7 +140,7 @@ export default async function DashboardPage({
                 place: event.place || "Место уточняется",
                 participants: event.attendees,
                 joined: event.joined,
-                coverSrc: "/art/house.svg",
+                coverSrc: "/art/house.webp",
                 href: `/social/calendar#e-${event.id}`,
               }
             : null

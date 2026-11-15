@@ -8,7 +8,6 @@ import {
   type ServerStatus,
 } from "@/lib/site/server-status";
 import { FeaturedRow } from "@/components/home/featured-row";
-import { TrailerPlayer } from "@/components/home/trailer-player";
 import { isEnabled } from "@/lib/flags";
 import { listPublicGallery } from "@/lib/social/gallery";
 import { ButtonLink, circleClass } from "@/components/ui/button";
@@ -34,10 +33,10 @@ const SERVER_LABEL: Record<ServerStatus, { tone: BadgeTone; text: string }> = {
 const SKY = "art-bg";
 
 const WORLDS = [
-  { src: "/art/meadow.svg", alt: "Луга с ветряной мельницей" },
-  { src: "/art/snow.svg", alt: "Снежные горы и ели" },
-  { src: "/art/cherry.svg", alt: "Вишнёвая роща на острове" },
-  { src: "/art/lava.svg", alt: "Лавовая пещера" },
+  { src: "/art/meadow.webp", alt: "Луга с ветряной мельницей" },
+  { src: "/art/snow.webp", alt: "Снежные горы и ели" },
+  { src: "/art/cherry.webp", alt: "Вишнёвая роща на острове" },
+  { src: "/art/lava.webp", alt: "Лавовая пещера" },
 ];
 
 function Eyebrow({ children, id }: { children: React.ReactNode; id?: string }) {
@@ -123,7 +122,11 @@ export default async function Home() {
           <div className="relative">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/art/hero.svg"
+              src="/art/hero.webp"
+              width={1200}
+              height={952}
+              fetchPriority="high"
+              decoding="async"
               alt="Воксельный остров с замком, рекой и путником, который сидит с собакой на утёсе"
               className="relative mx-auto w-full max-w-[34rem] lg:-mt-6 lg:-mr-12 lg:w-[122%] lg:max-w-none"
             />
@@ -154,16 +157,26 @@ export default async function Home() {
             <div
               className={`${SKY} ring-paper relative aspect-video overflow-hidden rounded-[1.75rem] shadow-[var(--shadow-card)] ring-4`}
             >
-              <TrailerPlayer poster="/art/house.svg" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/community/gathering.webp"
+                alt="Игроки MineOrt собрались вместе в подземелье"
+                width={960}
+                height={540}
+                loading="lazy"
+                decoding="async"
+                className="size-full object-cover"
+              />
             </div>
             <figure
               className={`${SKY} ring-paper absolute right-0 bottom-0 h-36 w-52 overflow-hidden rounded-3xl shadow-[var(--shadow-card)] ring-4 sm:h-40 sm:w-60 lg:right-[-1.5rem]`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/community/gathering.webp"
-                alt="Игроки MineOrt собрались вместе в подземелье"
+                src="/art/house.webp"
+                alt="Воксельный дом на холме"
                 loading="lazy"
+                decoding="async"
                 className="size-full object-cover"
               />
             </figure>
@@ -276,9 +289,12 @@ export default async function Home() {
           <div className="relative -mx-4 sm:-mx-8 lg:mx-0 lg:-mr-8">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/art/landscape.svg"
-              alt="Панорама: горы со снежными вершинами и лес"
+              src="/art/landscape.webp"
+              width={1100}
+              height={671}
               loading="lazy"
+              decoding="async"
+              alt="Панорама: горы со снежными вершинами и лес"
               className="w-full"
               style={{
                 WebkitMaskImage:

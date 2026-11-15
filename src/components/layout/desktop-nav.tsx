@@ -6,13 +6,18 @@ import { activeIndex } from "@/lib/nav/active";
 import type { MenuItem } from "@/lib/menu";
 
 /** Top menu on wide screens. The current section is marked here, on the client, because the header lives in the layout and is not re-rendered when only the page changes. */
-export function DesktopNav({ items }: { items: MenuItem[] }) {
+// The cabinet already has its own button on the right, and with it the row no longer fits in the
+// 1132 px page card: the item stays in the phone menu only.
+const hideOnWide = (item: MenuItem) => item.href !== "/dashboard";
+
+export function DesktopNav({ items: all }: { items: MenuItem[] }) {
+  const items = all.filter(hideOnWide);
   const pathname = usePathname();
   const params = useSearchParams();
   const current = activeIndex(items, pathname, params);
 
   return (
-    <nav aria-label="Главное меню" className="hidden lg:block">
+    <nav aria-label="Главное меню" className="hidden min-w-0 xl:block">
       <ul className="flex items-center gap-1">
         {items.map((item, i) => {
           const childIdx = item.children

@@ -416,7 +416,7 @@ export function DashboardView(p: DashboardProps) {
                 label: "Открыть карту",
                 href: "/map",
                 icon: MapIcon,
-                ...(p.nav.find((n) => n.label === "Карта мира")?.href
+                ...(p.nav.some((n) => n.href === "/map")
                   ? {}
                   : { disabledHint: "Скоро" }),
               },

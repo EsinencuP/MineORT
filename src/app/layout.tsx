@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { Suspense } from "react";
 import { NavProgress } from "@/components/layout/nav-progress";
@@ -9,8 +9,16 @@ import { THEME_INIT_SCRIPT } from "@/components/layout/theme-toggle";
 import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
-// Main face: Modula (a pixel face that reads well in Cyrillic and Latin). Display face: Pixar One.
-// Both were supplied by the owner; see THIRD_PARTY_NOTICES.md for their licence terms.
+// Reading text (paragraphs, descriptions, statuses, forms) is set in a classic sans, Inter, which is
+// easy to read in Cyrillic and Latin. The pixel faces are for headings and short labels only:
+// Modula for section titles, buttons and menus, Pixar One for page titles. The pixel faces were
+// supplied by the owner; see THIRD_PARTY_NOTICES.md for their licence terms.
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin", "cyrillic"],
+  display: "swap",
+});
+
 const modula = localFont({
   src: "../fonts/Modula.woff2",
   variable: "--font-modula",
@@ -51,7 +59,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="ru"
       data-theme="dark"
       suppressHydrationWarning
-      className={`${modula.variable} ${pixar.variable} ${mono.variable} h-full antialiased`}
+      className={`${inter.variable} ${modula.variable} ${pixar.variable} ${mono.variable} h-full antialiased`}
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
@@ -68,27 +76,39 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/art/leaves.svg"
+              src="/art/leaves-a.webp"
               alt=""
-              className="absolute -top-16 -right-24 w-[26rem] max-w-none rotate-12 opacity-90 blur-[3px]"
+              width={520}
+              height={375}
+              decoding="async"
+              className="absolute -top-16 -right-24 w-[26rem] max-w-none rotate-12 opacity-90"
             />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/art/leaves.svg"
+              src="/art/leaves-b.webp"
               alt=""
-              className="absolute top-[38%] -left-40 w-[22rem] max-w-none -rotate-12 opacity-60 blur-[6px]"
+              width={520}
+              height={375}
+              decoding="async"
+              className="absolute top-[38%] -left-40 w-[22rem] max-w-none -rotate-12 opacity-60"
             />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/art/clouds.svg"
+              src="/art/clouds-a.webp"
               alt=""
-              className="absolute top-24 -left-10 w-72 max-w-none opacity-80 blur-[1px]"
+              width={460}
+              height={245}
+              decoding="async"
+              className="absolute top-24 -left-10 w-72 max-w-none opacity-80"
             />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/art/clouds.svg"
+              src="/art/clouds-b.webp"
               alt=""
-              className="absolute right-[8%] bottom-24 w-64 max-w-none opacity-70 blur-[2px]"
+              width={460}
+              height={245}
+              decoding="async"
+              className="absolute right-[8%] bottom-24 w-64 max-w-none opacity-70"
             />
           </div>
           <div className="relative mx-auto w-full max-w-[1180px] px-2 py-3 sm:px-6 sm:py-8">

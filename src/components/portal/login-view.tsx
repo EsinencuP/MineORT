@@ -165,7 +165,10 @@ export function LoginView({
       <div className="art-bg relative order-first overflow-hidden rounded-[1.75rem] lg:order-none">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/art/hero.svg"
+          src="/art/hero.webp"
+          width={1200}
+          height={952}
+          decoding="async"
           alt="Воксельный остров с замком, рекой и путником на утёсе"
           className="mx-auto w-full max-w-[34rem] lg:max-w-none lg:scale-110"
         />

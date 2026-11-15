@@ -139,7 +139,7 @@
   --color-info: var(--info);
   --color-info-bg: var(--info-bg);
   --color-focus: var(--focus);
-  --font-sans: var(--font-modula), system-ui, sans-serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
   --font-pixel: var(--font-modula), system-ui, sans-serif;
   --font-display: var(--font-pixar), var(--font-modula), system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, monospace;
@@ -149,6 +149,9 @@
 }
 
 :root {
+  /* reading text */
+  --app-text: var(--font-inter), system-ui, "Segoe UI", Arial, sans-serif;
+  /* pixel face for headings and short labels */
   --app-font: var(--font-modula), system-ui, "Segoe UI", Arial, sans-serif;
   --app-display: var(--font-pixar), var(--font-modula), system-ui, sans-serif;
 }
@@ -156,7 +159,7 @@
 body {
   min-width: 320px;
   color: var(--ink);
-  font-family: var(--app-font);
+  font-family: var(--app-text);
   /* the pixel faces have one weight: a synthesised bold only smears them */
   font-synthesis-weight: none;
   background: var(--page-bg) fixed;
@@ -184,11 +187,22 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-h2 {
+h2,
+h3,
+h4 {
   font-family: var(--app-font);
   font-weight: 400;
   letter-spacing: 0.02em;
   overflow-wrap: anywhere;
+}
+
+/* Short labels stay in the pixel face: buttons, menus and section tabs. Sentences never do. */
+button,
+summary,
+header nav a,
+nav[aria-label="Разделы портала"] a {
+  font-family: var(--app-font);
+  letter-spacing: 0.02em;
 }
 
 .font-pixel {
