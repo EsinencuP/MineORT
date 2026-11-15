@@ -192,7 +192,7 @@ test("visibility: guest sees only news; a player without admission reads but can
   await expect(bob.getByText("Опубликовано.")).toBeVisible();
   const privSrc = await bob
     .locator("[data-post-id]", { hasText: `Секрет ${TAG}` })
-    .locator("img")
+    .locator("img[alt='Изображение к публикации']")
     .getAttribute("src");
 
   const alice = await asUser(browser, "alice");

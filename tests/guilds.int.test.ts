@@ -2,6 +2,8 @@ import { randomInt, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   assignRank,
+  getPlayerProfile,
+  userIdByNick,
   createGuild,
   kickMember,
   leaveGuild,
@@ -18,7 +20,7 @@ const enabled =
 const users: string[] = [];
 let guildId = "";
 
-async function player(role: "player" | "admin" = "player") {
+async function player(role: "player" | "admin" = "player", fixedNick?: string) {
   const { userId } = await upsertTelegramUser({
     telegramId: String(7_000_000_000 + randomInt(1_000_000_000)),
     username: "g_" + randomUUID().slice(0, 6),
@@ -27,7 +29,8 @@ async function player(role: "player" | "admin" = "player") {
   users.push(userId);
   if (role === "admin")
     await db().from("users").update({ site_role: "admin" }).eq("id", userId);
-  const nickname = "G" + randomUUID().replace(/-/g, "").slice(0, 9);
+  const nickname =
+    fixedNick ?? "G" + randomUUID().replace(/-/g, "").slice(0, 9);
   await db().from("minecraft_identities").insert({
     user_id: userId,
     nickname,
@@ -143,3 +146,27 @@ describe.skipIf(!enabled)(
     });
   },
 );
+
+describe.skipIf(!enabled)("nickname lookup is an exact match", () => {
+  it('does not treat "_" as a wildcard', async () => {
+    const tag = randomUUID().replace(/-/g, "").slice(0, 4);
+    const a = await player("player", `Wx_${tag}1`);
+    const b = await player("player", `WxZ${tag}1`);
+    try {
+      expect(await userIdByNick(a.nickname)).toBe(a.userId);
+      expect(await userIdByNick(b.nickname)).toBe(b.userId);
+      expect((await getPlayerProfile(a.nickname))?.nickname).toBe(a.nickname);
+      expect((await getPlayerProfile(b.nickname))?.nickname).toBe(b.nickname);
+      expect(await userIdByNick(`Wx_${tag}%`)).toBeNull(); // not a valid nickname at all
+    } finally {
+      await db()
+        .from("access_memberships")
+        .delete()
+        .in("user_id", [a.userId, b.userId]);
+      await db()
+        .from("minecraft_identities")
+        .delete()
+        .in("user_id", [a.userId, b.userId]);
+    }
+  });
+});

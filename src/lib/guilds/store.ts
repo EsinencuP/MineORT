@@ -67,13 +67,16 @@ async function call(
   return data;
 }
 
+/** Exact, case-insensitive match for ILIKE: "_" and "%" are legal/special, so they are escaped. */
+const exactIlike = (text: string) => text.replace(/[\\%_]/g, "\\$&");
+
 /** Nickname -> user id, only for players who may be addressed (an active nickname binding). */
 export async function userIdByNick(nick: string): Promise<string | null> {
   if (!/^[A-Za-z0-9_]{3,16}$/.test(nick)) return null;
   const { data } = await db()
     .from("minecraft_identities")
     .select("user_id")
-    .ilike("nickname", nick)
+    .ilike("nickname", exactIlike(nick))
     .in("binding_status", ["reserved", "confirmed"])
     .maybeSingle();
   return (data?.user_id as string | undefined) ?? null;
@@ -303,7 +306,7 @@ export async function getPlayerProfile(
   const { data: prof } = await db()
     .from("public_profiles")
     .select("nickname, since, bio, show_stats")
-    .ilike("nickname", nick)
+    .ilike("nickname", exactIlike(nick))
     .maybeSingle();
   if (!prof) return null;
   const { data: member } = await db()
