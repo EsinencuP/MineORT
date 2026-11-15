@@ -6,8 +6,10 @@ import { safeReturnTo } from "@/lib/auth/session-policy";
 import { SocialError } from "@/lib/social/errors";
 import {
   addToGallery,
-  removeFromGallery,
-  setGalleryVisibility,
+  deleteGalleryItem,
+  moderateMedia,
+  reportMedia,
+  updateGalleryItem,
 } from "@/lib/social/gallery";
 import {
   createPost,
@@ -117,28 +119,62 @@ export async function reportPostAction(formData: FormData) {
 }
 
 export async function addToGalleryAction(formData: FormData) {
-  return run(formData, "/social/gallery", "added", (viewer) =>
-    addToGallery(
-      viewer,
-      strs(formData, "upload"),
-      visibilityOf(str(formData.get("visibility"))),
-    ),
+  return run(formData, "/social/gallery?mine=1", "added", (viewer) =>
+    addToGallery(viewer, strs(formData, "upload"), {
+      // empty captions are kept, so that they stay aligned with their files
+      captions: formData
+        .getAll("caption")
+        .map((v) => (typeof v === "string" ? v : "")),
+      category: str(formData.get("category")),
+      visibility: visibilityOf(str(formData.get("visibility"))),
+    }),
+  );
+}
+
+export async function updateGalleryItemAction(formData: FormData) {
+  return run(formData, "/social/gallery?mine=1", "saved", (viewer) =>
+    updateGalleryItem(viewer, str(formData.get("media_id")), {
+      caption: str(formData.get("caption")),
+      category: str(formData.get("category")),
+      visibility: str(formData.get("visibility")) || undefined,
+    }),
   );
 }
 
 export async function galleryVisibilityAction(formData: FormData) {
-  return run(formData, "/social/gallery", "visibility", (viewer) =>
-    setGalleryVisibility(
+  return run(formData, "/social/gallery?mine=1", "visibility", (viewer) =>
+    updateGalleryItem(viewer, str(formData.get("media_id")), {
+      visibility: visibilityOf(str(formData.get("visibility"))),
+    }),
+  );
+}
+
+export async function deleteGalleryItemAction(formData: FormData) {
+  return run(formData, "/social/gallery?mine=1", "removed", (viewer) =>
+    deleteGalleryItem(viewer, str(formData.get("media_id"))),
+  );
+}
+
+export async function reportMediaAction(formData: FormData) {
+  return run(formData, "/social/gallery", "reported", (viewer) =>
+    reportMedia(
       viewer,
       str(formData.get("media_id")),
-      visibilityOf(str(formData.get("visibility"))),
+      str(formData.get("reason")),
     ),
   );
 }
 
-export async function galleryRemoveAction(formData: FormData) {
-  return run(formData, "/social/gallery", "removed", (viewer) =>
-    removeFromGallery(viewer, str(formData.get("media_id"))),
+export async function moderateMediaAction(formData: FormData) {
+  const a = str(formData.get("action"));
+  const action = a === "unhide" || a === "delete" ? a : "hide";
+  return run(formData, "/social/gallery", "moderated", (viewer) =>
+    moderateMedia(
+      viewer,
+      str(formData.get("media_id")),
+      action,
+      str(formData.get("reason")),
+    ),
   );
 }
 

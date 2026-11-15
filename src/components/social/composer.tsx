@@ -48,7 +48,7 @@ export function Composer({
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={`/api/media/${g.id}`}
-                      alt="Изображение из галереи"
+                      alt={g.caption || "Изображение из галереи"}
                       loading="lazy"
                       className="aspect-square w-full object-cover"
                     />

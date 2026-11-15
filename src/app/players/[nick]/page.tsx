@@ -8,6 +8,9 @@ import { EmptyState } from "@/components/ui/states";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { requireFlag } from "@/lib/flags";
 import { getPlayerProfile, userIdByNick } from "@/lib/guilds/store";
+import { isEnabled } from "@/lib/flags";
+import { safely } from "@/lib/safe";
+import { listPublicGallery } from "@/lib/social/gallery";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +36,13 @@ export default async function PlayerPage({
   const { nick } = await params;
   const profile = await getPlayerProfile(nick);
   if (!profile) notFound(); // candidates, rejected, suspended and unknown nicks look the same
+  const shots = isEnabled("ff_p1a")
+    ? await safely(
+        "profile gallery",
+        () => listPublicGallery({ author: profile.nickname }, 6),
+        null,
+      )
+    : null;
   const me = await getCurrentUser();
   const mine = me
     ? (await userIdByNick(profile.nickname)) === me.userId
@@ -83,6 +93,40 @@ export default async function PlayerPage({
           <h2 className="text-xl">О себе</h2>
           <p className="mt-2 break-words whitespace-pre-line">{profile.bio}</p>
         </Card>
+      )}
+
+      {shots && shots.items.length > 0 && (
+        <section aria-labelledby="shots" className="mt-8">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="shots" className="text-2xl">
+              Скриншоты
+            </h2>
+            <Link
+              href={`/social/gallery?author=${encodeURIComponent(profile.nickname)}`}
+              className="text-brand-700 text-sm font-semibold underline underline-offset-4"
+            >
+              Все скриншоты игрока
+            </Link>
+          </div>
+          <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {shots.items.map((g) => (
+              <li key={g.id}>
+                <Link
+                  href={`/social/gallery/${g.id}`}
+                  className="border-line lift block overflow-hidden rounded-2xl border"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/api/media/${g.id}`}
+                    alt={g.caption || `Скриншот игрока ${g.owner}`}
+                    loading="lazy"
+                    className="aspect-[4/3] w-full object-cover"
+                  />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <section aria-labelledby="posts" className="mt-8">

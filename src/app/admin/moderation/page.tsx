@@ -25,7 +25,7 @@ export default async function ModerationPage({
   const reports = await listOpenReports();
   return (
     <>
-      <h1 className="mb-4 text-2xl font-bold">Жалобы на публикации</h1>
+      <h1 className="mb-4 text-2xl font-bold">Жалобы</h1>
       <Notice
         error={sp.error}
         ok={sp.ok}
@@ -42,15 +42,32 @@ export default async function ModerationPage({
             <li key={r.id}>
               <Card className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <StatusBadge tone="warn">Жалоба</StatusBadge>
+                  <StatusBadge tone="warn">
+                    {r.kind === "media"
+                      ? "Жалоба на изображение"
+                      : "Жалоба на публикацию"}
+                  </StatusBadge>
                   <span className="text-ink-muted">
-                    {new Date(r.createdAt).toLocaleString("ru-RU")} · автор
-                    поста: {r.author}
+                    {new Date(r.createdAt).toLocaleString("ru-RU")} · автор:{" "}
+                    {r.author}
                   </span>
                   {STATE_LABEL[r.postState] && (
                     <StatusBadge>{STATE_LABEL[r.postState]}</StatusBadge>
                   )}
                 </div>
+                {r.mediaId && (
+                  <a
+                    href={`/social/gallery/${r.mediaId}`}
+                    className="block w-fit"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/media/${r.mediaId}`}
+                      alt="Изображение, на которое пожаловались"
+                      className="border-line max-h-60 rounded-xl border object-contain"
+                    />
+                  </a>
+                )}
                 <p className="border-line rounded-xl border p-3 break-words whitespace-pre-line">
                   {r.postBody || "—"}
                 </p>

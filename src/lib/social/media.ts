@@ -69,6 +69,12 @@ async function usedBytes(userId: string) {
   return { total, day };
 }
 
+/** What the player has stored: total and in the last 24 hours, with the limits. */
+export async function storageUsage(userId: string) {
+  const u = await usedBytes(userId);
+  return { ...u, totalLimit: TOTAL_BYTES, dayLimit: DAY_BYTES };
+}
+
 /**
  * Turns files the browser put into the incoming area into checked WebP images owned by the user.
  * All-or-nothing: on any failure the images created so far are removed again.

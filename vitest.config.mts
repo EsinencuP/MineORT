@@ -13,6 +13,8 @@ export default defineConfig({
   },
   test: {
     testTimeout: 60_000,
+    // the integration files share one staging database and the bridge reconciliation job: run them one by one
+    fileParallelism: false,
     environment: "node",
     include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
   },

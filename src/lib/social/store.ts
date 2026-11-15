@@ -9,6 +9,7 @@ import {
   releaseUnusedMedia,
   type MediaRow,
 } from "./media";
+import { moderateMedia } from "./gallery";
 import { canSeePost, type Viewer } from "./viewer";
 
 export const PAGE_SIZE = 20;
@@ -412,31 +413,91 @@ export async function reportPost(
 export async function listOpenReports() {
   const { data, error } = await db()
     .from("moderation_reports")
-    .select("id, reporter_id, target_id, reason, created_at")
+    .select("id, reporter_id, target_type, target_id, reason, created_at")
     .eq("status", "open")
     .order("created_at");
   if (error) throw new Error(`reports: ${error.message}`);
   const reports = data ?? [];
-  const postIds = [...new Set(reports.map((r) => r.target_id as string))];
-  const { data: posts } = postIds.length
-    ? await db()
-        .from("posts")
-        .select(
-          "id, author_id, body, kind, visibility, moderation_status, deleted_at, created_at",
-        )
-        .in("id", postIds)
-    : { data: [] };
+  const postIds = [
+    ...new Set(
+      reports
+        .filter((r) => r.target_type === "post")
+        .map((r) => r.target_id as string),
+    ),
+  ];
+  const mediaIds = [
+    ...new Set(
+      reports
+        .filter((r) => r.target_type === "media")
+        .map((r) => r.target_id as string),
+    ),
+  ];
+  const [{ data: posts }, { data: media }, { data: captions }] =
+    await Promise.all([
+      postIds.length
+        ? db()
+            .from("posts")
+            .select(
+              "id, author_id, body, kind, visibility, moderation_status, deleted_at, created_at",
+            )
+            .in("id", postIds)
+        : Promise.resolve({ data: [] }),
+      mediaIds.length
+        ? db()
+            .from("media")
+            .select("id, uploader_id, moderation_status, deleted_at")
+            .in("id", mediaIds)
+        : Promise.resolve({ data: [] }),
+      mediaIds.length
+        ? db()
+            .from("media_attachments")
+            .select("media_id, caption")
+            .eq("target_type", "gallery")
+            .in("media_id", mediaIds)
+        : Promise.resolve({ data: [] }),
+    ]);
   const authors = await authorsOf([
-    ...new Set((posts ?? []).map((p) => p.author_id as string)),
+    ...new Set([
+      ...(posts ?? []).map((p) => p.author_id as string),
+      ...(media ?? []).map((m) => m.uploader_id as string),
+    ]),
   ]);
-  const byId = new Map((posts ?? []).map((p) => [p.id as string, p]));
+  const byPost = new Map((posts ?? []).map((p) => [p.id as string, p]));
+  const byMedia = new Map((media ?? []).map((m) => [m.id as string, m]));
+  const captionOf = new Map(
+    (captions ?? []).map((c) => [c.media_id as string, c.caption as string]),
+  );
   return reports.map((r) => {
-    const p = byId.get(r.target_id as string);
-    return {
+    const base = {
       id: r.id as string,
       reason: r.reason as string,
       createdAt: r.created_at as string,
+    };
+    if (r.target_type === "media") {
+      const m = byMedia.get(r.target_id as string);
+      return {
+        ...base,
+        kind: "media" as const,
+        postId: r.target_id as string,
+        mediaId: r.target_id as string,
+        postBody: captionOf.get(r.target_id as string) ?? "",
+        postKind: "image",
+        postState: !m
+          ? "gone"
+          : m.deleted_at
+            ? "deleted"
+            : (m.moderation_status as string),
+        author: m
+          ? (authors.get(m.uploader_id as string)?.name ?? "Игрок")
+          : "—",
+      };
+    }
+    const p = byPost.get(r.target_id as string);
+    return {
+      ...base,
+      kind: "post" as const,
       postId: r.target_id as string,
+      mediaId: null as string | null,
       postBody: (p?.body as string | undefined) ?? "",
       postKind: (p?.kind as string | undefined) ?? "post",
       postState: p?.deleted_at
@@ -447,7 +508,7 @@ export async function listOpenReports() {
   });
 }
 
-/** Decision on a report: hide the post, delete it, or keep it (dismiss). Same target = all reports closed. */
+/** Decision on a report: hide, delete or keep (dismiss). Same target = all its open reports are closed. */
 export async function decideReport(
   viewer: Viewer,
   reportId: string,
@@ -460,14 +521,21 @@ export async function decideReport(
     throw new SocialError("reason_too_short");
   const { data: rep } = await db()
     .from("moderation_reports")
-    .select("id, target_id, status")
+    .select("id, target_type, target_id, status")
     .eq("id", reportId)
     .maybeSingle();
   if (!rep) throw new SocialError("report_not_found");
   if (rep.status !== "open") throw new SocialError("report_closed");
-  const postId = rep.target_id as string;
+  const targetType = rep.target_type as "post" | "media";
+  const targetId = rep.target_id as string;
 
-  if (decision === "hide") {
+  if (targetType === "media") {
+    if (decision !== "dismiss")
+      await moderateMedia(viewer, targetId, decision, reason).catch((e) => {
+        if (!(e instanceof SocialError && e.code === "media_not_found"))
+          throw e;
+      });
+  } else if (decision === "hide") {
     await db()
       .from("posts")
       .update({
@@ -475,9 +543,9 @@ export async function decideReport(
         moderation_reason: reason,
         pinned: false,
       })
-      .eq("id", postId);
+      .eq("id", targetId);
   } else if (decision === "delete") {
-    await deletePost(viewer, postId, reason).catch((e) => {
+    await deletePost(viewer, targetId, reason).catch((e) => {
       if (!(e instanceof SocialError && e.code === "post_not_found")) throw e;
     });
   }
@@ -489,12 +557,13 @@ export async function decideReport(
       decided_at: new Date().toISOString(),
       decision_note: reason || null,
     })
-    .eq("target_type", "post")
-    .eq("target_id", postId)
+    .eq("target_type", targetType)
+    .eq("target_id", targetId)
     .eq("status", "open");
   await writeAudit(viewer.userId, `report.${decision}`, {
     report_id: reportId,
-    post_id: postId,
+    target_type: targetType,
+    target_id: targetId,
     note: reason || null,
   });
 }

@@ -23,9 +23,12 @@ const MAX_BYTES = 10 * 1024 * 1024;
 export function ImagePicker({
   max = 10,
   name = "upload",
+  withCaptions = false,
 }: {
   max?: number;
   name?: string;
+  /** Adds a caption field under every finished file (`caption`, same order as the files). */
+  withCaptions?: boolean;
 }) {
   const [tiles, setTiles] = useState<Tile[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -146,44 +149,58 @@ export function ImagePicker({
         </span>
       </div>
       {tiles.length > 0 && (
-        <ul className="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-2">
+        <ul
+          className={`grid gap-2 ${withCaptions ? "grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]" : "grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))]"}`}
+        >
           {tiles.map((t) => (
             <li
               key={t.key}
               className="border-line bg-paper relative overflow-hidden rounded-xl border"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={t.preview}
-                alt={t.name}
-                className={`aspect-square w-full object-cover ${t.state === "done" ? "" : "opacity-50"}`}
-              />
-              <span
-                role={t.state === "error" ? "alert" : "status"}
-                className={`absolute inset-x-0 bottom-0 px-2 py-1 text-[11px] font-semibold ${
-                  t.state === "error"
-                    ? "bg-danger text-on-danger"
+              <div className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={t.preview}
+                  alt={t.name}
+                  className={`aspect-square w-full object-cover ${t.state === "done" ? "" : "opacity-50"}`}
+                />
+                <span
+                  role={t.state === "error" ? "alert" : "status"}
+                  className={`absolute inset-x-0 bottom-0 px-2 py-1 text-[11px] font-semibold ${
+                    t.state === "error"
+                      ? "bg-danger text-on-danger"
+                      : t.state === "done"
+                        ? "bg-brand-600 text-on-brand"
+                        : "bg-surface text-ink-muted"
+                  }`}
+                >
+                  {t.state === "uploading"
+                    ? "Загрузка…"
                     : t.state === "done"
-                      ? "bg-brand-600 text-on-brand"
-                      : "bg-surface text-ink-muted"
-                }`}
-              >
-                {t.state === "uploading"
-                  ? "Загрузка…"
-                  : t.state === "done"
-                    ? "Готово"
-                    : (t.error ?? "Ошибка")}
-              </span>
-              <button
-                type="button"
-                onClick={() => remove(t.key)}
-                aria-label={`Убрать ${t.name}`}
-                className="bg-paper/90 text-ink absolute top-1 right-1 inline-flex size-7 items-center justify-center rounded-full text-sm"
-              >
-                ✕
-              </button>
+                      ? "Готово"
+                      : (t.error ?? "Ошибка")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => remove(t.key)}
+                  aria-label={`Убрать ${t.name}`}
+                  className="bg-paper/90 text-ink absolute top-1 right-1 inline-flex size-7 items-center justify-center rounded-full text-sm"
+                >
+                  ✕
+                </button>
+              </div>
               {t.state === "done" && t.path && (
                 <input type="hidden" name={name} value={t.path} />
+              )}
+              {withCaptions && t.state === "done" && (
+                <input
+                  type="text"
+                  name="caption"
+                  maxLength={200}
+                  placeholder="Подпись (необязательно)"
+                  aria-label={`Подпись к ${t.name}`}
+                  className="bg-paper text-ink border-line m-2 min-h-10 w-[calc(100%-1rem)] rounded-lg border px-2 text-xs"
+                />
               )}
             </li>
           ))}

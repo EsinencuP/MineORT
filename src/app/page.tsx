@@ -8,6 +8,8 @@ import {
   type ServerStatus,
 } from "@/lib/site/server-status";
 import { FeaturedRow } from "@/components/home/featured-row";
+import { isEnabled } from "@/lib/flags";
+import { listPublicGallery } from "@/lib/social/gallery";
 import { ButtonLink, circleClass } from "@/components/ui/button";
 import { ArrowRight, PlayIcon } from "@/components/ui/icons";
 import {
@@ -51,6 +53,9 @@ export default async function Home() {
     safely("server status", getPublicServerStatus, "unknown" as const),
     safely("rules", currentRules, null),
   ]);
+  const shots = isEnabled("ff_p1a")
+    ? await safely("home gallery", () => listPublicGallery({}, 8), null)
+    : null;
   const cta = ctaFor(stage);
   const server = SERVER_LABEL[status];
   const excerpt = rules
@@ -215,6 +220,45 @@ export default async function Home() {
         </div>
         <FeaturedRow items={WORLDS} />
       </section>
+
+      {/* ---------- Community screenshots ---------- */}
+      {shots && shots.items.length > 0 && (
+        <section aria-labelledby="shots-title" className="px-4 pt-10 sm:px-8">
+          <div className="mb-6 flex items-center gap-5">
+            <span className="bg-line h-px flex-1" aria-hidden="true" />
+            <h2 id="shots-title" className="eyebrow">
+              Из галереи сообщества
+            </h2>
+            <span className="bg-line h-px flex-1" aria-hidden="true" />
+          </div>
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {shots.items.slice(0, 8).map((g) => (
+              <li key={g.id}>
+                <Link
+                  href={`/social/gallery/${g.id}`}
+                  className="border-line lift block overflow-hidden rounded-2xl border"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/api/media/${g.id}`}
+                    alt={g.caption || `Скриншот игрока ${g.owner}`}
+                    loading="lazy"
+                    className="aspect-[4/3] w-full object-cover"
+                  />
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-4 text-center">
+            <Link
+              href="/social/gallery"
+              className="text-brand-700 font-semibold underline underline-offset-4"
+            >
+              Открыть галерею
+            </Link>
+          </p>
+        </section>
+      )}
 
       {/* ---------- Quote ---------- */}
       <section

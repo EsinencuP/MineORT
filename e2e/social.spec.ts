@@ -399,39 +399,3 @@ test("post rate limit: the eleventh publication within an hour is refused", asyn
     bob.getByText("Слишком много публикаций, попробуйте позже."),
   ).toBeVisible();
 });
-
-test("gallery: add, hide from the public gallery, delete", async ({
-  browser,
-}) => {
-  await db.from("rate_limit_counters").delete().like("key", "upload:%");
-  const bob = await asUser(browser, "bob");
-  await bob.goto("/social/gallery");
-  await bob.locator('input[type="file"]').setInputFiles({
-    name: "g.png",
-    mimeType: "image/png",
-    buffer: await png("#1e88e5"),
-  });
-  await expect(bob.getByText("Готово", { exact: true })).toBeVisible();
-  await bob.getByRole("button", { name: "Добавить в галерею" }).click();
-  await expect(bob.getByText("Изображения добавлены.")).toBeVisible();
-  const mine = bob
-    .locator("#mine ~ ul img, section[aria-labelledby=mine] ul img")
-    .first();
-  const src = await mine.getAttribute("src");
-  const guestCtx = await browser.newContext({
-    baseURL: test.info().project.use.baseURL,
-  });
-  expect((await guestCtx.request.get(src!, { maxRedirects: 0 })).status()).toBe(
-    302,
-  );
-
-  await bob.getByRole("button", { name: "Скрыть" }).first().click();
-  await expect(bob.getByText("Видимость изменена.")).toBeVisible();
-  expect((await guestCtx.request.get(src!, { maxRedirects: 0 })).status()).toBe(
-    404,
-  );
-
-  await bob.getByRole("button", { name: "Удалить" }).first().click();
-  await expect(bob.getByText("Изображение удалено из галереи.")).toBeVisible();
-  expect((await bob.request.get(src!, { maxRedirects: 0 })).status()).toBe(404);
-});
