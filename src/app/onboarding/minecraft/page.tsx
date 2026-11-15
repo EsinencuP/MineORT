@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth/guards";
 import { getWhitelistState } from "@/lib/bridge/whitelist";
 import { getSettings } from "@/lib/guides/store";
 import { safely } from "@/lib/safe";
+import { getPublicServerStatus } from "@/lib/site/server-status";
 import { OnboardingView } from "@/components/portal/onboarding-view";
 
 export const metadata: Metadata = { title: "Подключи своего персонажа" };
@@ -33,6 +34,11 @@ export default async function OnboardingPage({
     safely("settings", getSettings, null),
   ]);
 
+  const serverState = await safely(
+    "server status",
+    getPublicServerStatus,
+    "unknown" as const,
+  );
   const app = o.application;
   const decidedAt = app?.decided_at ? Date.parse(app.decided_at) : null;
   const rejected = app?.status === "rejected";
@@ -70,6 +76,7 @@ export default async function OnboardingPage({
       error={typeof sp.error === "string" ? sp.error : null}
       ok={typeof sp.ok === "string" ? sp.ok : null}
       supportContact={settings?.support_contact || null}
+      serverState={serverState}
     />
   );
 }

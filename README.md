@@ -1,6 +1,6 @@
-# MineOrt IV
+# MineOrt V
 
-Site for the MineOrt IV Minecraft community. Stack (OD-35 = A): Next.js + TypeScript + Tailwind, Supabase/PostgreSQL, Vercel, Java Paper Bridge.
+Site for the MineOrt V Minecraft community. Stack (OD-35 = A): Next.js + TypeScript + Tailwind, Supabase/PostgreSQL, Vercel, Java Paper Bridge.
 Product and planning docs live in [`docs/`](docs/README.md); the MVP plan is `docs/04-plan/04-mvp-development-plan.md`.
 
 ## Quick start

@@ -3,7 +3,7 @@ import Link from "next/link";
 export function SiteFooter() {
   return (
     <footer className="border-line text-ink-muted mx-4 mt-10 flex flex-wrap items-center justify-between gap-3 border-t py-6 text-sm sm:mx-8">
-      <p>MineOrt IV · сообщество Minecraft</p>
+      <p>MineOrt V · сообщество Minecraft</p>
       <nav
         aria-label="Служебные ссылки"
         className="flex flex-wrap gap-x-5 gap-y-1"

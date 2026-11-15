@@ -63,6 +63,7 @@ const onboarding: Record<string, OnboardingProps> = {
     rulesAccepted: true,
     membershipApproved: true,
     nickLocked: true,
+    serverState: "unknown",
     application: { status: "approved" },
   },
   ready: {

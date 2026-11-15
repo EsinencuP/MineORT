@@ -24,8 +24,8 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: { default: "MineOrt IV", template: "%s · MineOrt IV" },
-  description: "Сообщество MineOrt IV: сервер Minecraft, игроки и карта мира.",
+  title: { default: "MineOrt V", template: "%s · MineOrt V" },
+  description: "Сообщество MineOrt V: сервер Minecraft, игроки и карта мира.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

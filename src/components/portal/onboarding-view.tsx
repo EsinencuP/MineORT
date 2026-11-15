@@ -37,6 +37,8 @@ export type OnboardingProps = {
   /** Design preview only: pre-typed nickname and an expanded application form. */
   previewNick?: string;
   openApplication?: boolean;
+  /** Bridge server state; "unknown" = no game server is registered with the site yet. */
+  serverState?: "online" | "offline" | "paused" | "unknown";
 };
 
 const NICK_ERRORS = new Set([
@@ -165,7 +167,10 @@ export function OnboardingView(p: OnboardingProps) {
         ]),
     { label: "Доступ одобрен", state: approved ? "done" : "todo" },
     {
-      label: "Whitelist синхронизируется",
+      label:
+        p.serverState === "unknown"
+          ? "Whitelist: ждём запуска сервера"
+          : "Whitelist синхронизируется",
       state: approved ? (p.whitelistApplied ? "done" : "current") : "todo",
     },
     { label: "Можно подключаться", state: ready ? "done" : "todo" },
@@ -465,6 +470,25 @@ export function OnboardingView(p: OnboardingProps) {
               </form>
             )}
           </Card>
+
+          {approved && !ready && (
+            <div className="mt-6 flex flex-col gap-3">
+              <p
+                role="status"
+                className="bg-info-bg text-info rounded-2xl px-4 py-3 text-sm font-medium"
+              >
+                {p.serverState === "unknown"
+                  ? "Игровой сервер ещё не подключён к сайту. Допуск сохранён: как только сервер заработает, мы добавим тебя в whitelist сами. Сайт и сообщество доступны уже сейчас."
+                  : "Сервер ещё применяет твой допуск. Обычно это занимает пару минут. Сайт и сообщество доступны уже сейчас."}
+              </p>
+              <ButtonLink
+                href="/dashboard"
+                className="min-h-14 self-start px-8 text-base"
+              >
+                Перейти в кабинет
+              </ButtonLink>
+            </div>
+          )}
 
           {ready && (
             <div className="mt-6 flex flex-col gap-3">

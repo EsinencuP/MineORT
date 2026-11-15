@@ -89,7 +89,7 @@ export default async function Home() {
               </span>
             </h1>
             <p className="text-ink-muted mt-6 max-w-sm text-base leading-relaxed sm:text-lg">
-              Сервер MineOrt IV: общий мир, где идеи превращаются в постройки.
+              Сервер MineOrt V: общий мир, где идеи превращаются в постройки.
               Войдите через Telegram, примите правила и получите допуск.
             </p>
             <p className="mt-4">
