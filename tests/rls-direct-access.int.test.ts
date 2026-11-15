@@ -14,6 +14,9 @@ const headers = {
 // Every base table in public; extend as migrations add tables.
 const tables: Record<string, Record<string, unknown>> = {
   posts: { body: "x" },
+  projects: { title: "xxx" },
+  project_needs: { title: "x" },
+  project_supporters: { user_id: "00000000-0000-0000-0000-000000000000" },
   media: { storage_key: "x" },
   media_attachments: { target_type: "post" },
   reactions: { kind: "like" },

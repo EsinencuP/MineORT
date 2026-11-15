@@ -244,6 +244,8 @@ export type ProjectCardProps = {
   role: string;
   next: string;
   coverSrc: string;
+  /** The project page; the title becomes a link when set. */
+  href?: string;
 };
 
 export function ProjectCard({
@@ -254,6 +256,7 @@ export function ProjectCard({
   role,
   next,
   coverSrc,
+  href,
 }: ProjectCardProps) {
   return (
     <div className="border-line bg-surface lift flex gap-4 rounded-2xl border p-4">
@@ -268,7 +271,15 @@ export function ProjectCard({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="font-pixel text-lg">{title}</h3>
+          <h3 className="font-pixel text-lg">
+            {href ? (
+              <Link href={href} className="underline-offset-4 hover:underline">
+                {title}
+              </Link>
+            ) : (
+              title
+            )}
+          </h3>
           <span className="bg-brand-50 text-brand-700 rounded-full px-2.5 py-0.5 text-xs font-semibold">
             {role}
           </span>

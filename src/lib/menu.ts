@@ -17,6 +17,7 @@ export const MENU: MenuItem[] = [
     children: [
       { label: "Лента и новости", href: "/social" },
       { label: "Галерея", href: "/social/gallery" },
+      { label: "Проекты", href: "/social/projects" },
       {
         label: "Голосования",
         href: "/social/polls",

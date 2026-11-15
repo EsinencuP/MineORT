@@ -8,6 +8,7 @@ import {
   type ServerStatus,
 } from "@/lib/site/server-status";
 import { FeaturedRow } from "@/components/home/featured-row";
+import { TrailerPlayer } from "@/components/home/trailer-player";
 import { isEnabled } from "@/lib/flags";
 import { listPublicGallery } from "@/lib/social/gallery";
 import { ButtonLink, circleClass } from "@/components/ui/button";
@@ -79,7 +80,7 @@ export default async function Home() {
             <Eyebrow>Сообщество Minecraft</Eyebrow>
             <h1
               id="hero"
-              className="font-pixel mt-5 text-[clamp(2.75rem,9.5vw,5.75rem)] leading-[0.92]"
+              className="font-display mt-5 text-[clamp(2.1rem,7.4vw,4.6rem)] leading-[1.02]"
             >
               <span className="block">Строй</span>
               <span className="block">Твори</span>
@@ -149,29 +150,23 @@ export default async function Home() {
         className="relative px-4 py-10 sm:px-8 lg:py-16"
       >
         <div className="grid items-center gap-14 lg:grid-cols-[1.1fr_.9fr]">
-          <div className="relative pr-6 pb-10 lg:pr-0">
+          <div className="relative pr-6 pb-28 lg:pr-0">
             <div
-              className={`${SKY} ring-paper aspect-[4/3] overflow-hidden rounded-[1.75rem] shadow-[var(--shadow-card)] ring-4`}
+              className={`${SKY} ring-paper relative aspect-video overflow-hidden rounded-[1.75rem] shadow-[var(--shadow-card)] ring-4`}
+            >
+              <TrailerPlayer poster="/art/house.svg" />
+            </div>
+            <figure
+              className={`${SKY} ring-paper absolute right-0 bottom-0 h-36 w-52 overflow-hidden rounded-3xl shadow-[var(--shadow-card)] ring-4 sm:h-40 sm:w-60 lg:right-[-1.5rem]`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/art/house.svg"
-                alt="Уютный деревянный дом с фонарём на лугу"
+                src="/community/gathering.webp"
+                alt="Игроки MineOrt собрались вместе в подземелье"
                 loading="lazy"
                 className="size-full object-cover"
               />
-            </div>
-            <div
-              className={`${SKY} ring-paper absolute -right-1 bottom-0 aspect-[5/4] w-[38%] overflow-hidden rounded-3xl shadow-[var(--shadow-card)] ring-4 lg:right-[-1.5rem]`}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/art/slime.svg"
-                alt="Добродушный зелёный куб-талисман"
-                loading="lazy"
-                className="size-full object-cover"
-              />
-            </div>
+            </figure>
             <PixelSprite
               rows={LEAF}
               colors={LEAF_COLORS}
@@ -273,7 +268,7 @@ export default async function Home() {
             >
               “
             </span>
-            <blockquote className="font-pixel -mt-2 max-w-sm text-4xl leading-tight sm:text-5xl">
+            <blockquote className="font-pixel -mt-2 max-w-md text-3xl leading-tight sm:text-4xl">
               Маленькие идеи — в большие миры.
             </blockquote>
             <span aria-hidden="true" className="bg-ink mt-5 block h-px w-16" />

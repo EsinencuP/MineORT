@@ -423,9 +423,11 @@ export function DashboardView(p: DashboardProps) {
               { label: "Читать Гайдбук", href: "/guide", icon: BookIcon },
               {
                 label: "Создать проект",
-                href: "",
+                href: "/social/projects/new",
                 icon: PlusIcon,
-                disabledHint: "Скоро",
+                ...(p.nav.find((n) => n.label === "Проекты")?.href
+                  ? {}
+                  : { disabledHint: "Скоро" }),
               },
               {
                 label: "Посмотреть события",

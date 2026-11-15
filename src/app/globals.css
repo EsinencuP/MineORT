@@ -139,18 +139,26 @@
   --color-info: var(--info);
   --color-info-bg: var(--info-bg);
   --color-focus: var(--focus);
-  --font-sans: var(--font-inter), system-ui, sans-serif;
-  --font-pixel: var(--font-pixelify), var(--font-inter), monospace;
+  --font-sans: var(--font-modula), system-ui, sans-serif;
+  --font-pixel: var(--font-modula), system-ui, sans-serif;
+  --font-display: var(--font-pixar), var(--font-modula), system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, monospace;
   --radius-card: 1.25rem;
   --shadow-card: var(--shadow-card);
   --shadow-page: var(--shadow-page);
 }
 
+:root {
+  --app-font: var(--font-modula), system-ui, "Segoe UI", Arial, sans-serif;
+  --app-display: var(--font-pixar), var(--font-modula), system-ui, sans-serif;
+}
+
 body {
   min-width: 320px;
   color: var(--ink);
-  font-family: var(--font-sans);
+  font-family: var(--app-font);
+  /* the pixel faces have one weight: a synthesised bold only smears them */
+  font-synthesis-weight: none;
   background: var(--page-bg) fixed;
 }
 
@@ -167,21 +175,32 @@ body {
   background: var(--art-bg);
 }
 
-/* Page headings use the pixel face everywhere. */
-h1,
-h2 {
-  font-family: var(--font-pixelify), var(--font-inter), monospace;
+/* Page titles use the display face (Pixar One); section titles and cards use Modula. */
+h1 {
+  font-family: var(--app-display);
   font-weight: 700;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
   /* a long word in the pixel face must wrap on a 320 px phone instead of scrolling the page */
   overflow-wrap: anywhere;
 }
 
+h2 {
+  font-family: var(--app-font);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  overflow-wrap: anywhere;
+}
+
 .font-pixel {
-  font-family: var(--font-pixelify), var(--font-inter), monospace;
+  font-family: var(--app-font);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+.font-display {
+  font-family: var(--app-display);
   font-weight: 700;
-  letter-spacing: 0.01em;
-  -webkit-font-smoothing: none;
+  letter-spacing: 0.02em;
 }
 
 /* Small caps label ("О ПРОЕКТЕ", "МИРЫ СЕРВЕРА"). */
@@ -189,7 +208,8 @@ h2 {
   font-size: 0.7rem;
   letter-spacing: 0.28em;
   text-transform: uppercase;
-  font-weight: 600;
+  font-family: var(--app-display);
+  font-weight: 400;
   color: var(--ink);
 }
 

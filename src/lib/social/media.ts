@@ -1,5 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
+import { isCoverOfOpenProject } from "@/lib/projects/store";
 import { db } from "@/lib/supabase-admin";
 import { SocialError } from "./errors";
 import { normalizeImage } from "./image";
@@ -244,6 +245,7 @@ export async function mediaSignedUrl(
       .eq("media_id", id);
     const list = atts ?? [];
     if (list.some((a) => a.target_type === "gallery")) allowed = true;
+    else if (await isCoverOfOpenProject(id)) allowed = true;
     else {
       const postIds = list
         .filter((a) => a.target_type === "post")

@@ -12,18 +12,18 @@ export function BrandMark() {
     <Link
       href="/"
       className="flex items-center gap-2.5"
-      aria-label="MineOrt: на главную"
+      aria-label="MineOrt V: на главную"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/art/cube.svg"
+        src="/brand/logo-160.webp"
         alt=""
-        width={34}
-        height={34}
-        className="size-7 sm:size-[34px]"
+        width={44}
+        height={44}
+        className="size-9 sm:size-11"
       />
-      <span className="font-pixel text-ink text-xl leading-none whitespace-nowrap sm:text-2xl">
-        MineOrt
+      <span className="font-display text-ink text-lg leading-none whitespace-nowrap sm:text-2xl">
+        MineOrt<span className="text-accent"> V</span>
       </span>
     </Link>
   );
@@ -45,7 +45,7 @@ export async function SiteHeader() {
               <li key={item.href + item.label} className="group relative">
                 <Link
                   href={item.href}
-                  className="hover:bg-brand-50 flex min-h-11 items-center rounded-full px-3.5 text-sm font-medium"
+                  className="hover:bg-brand-50 flex min-h-11 items-center rounded-full px-3 text-sm whitespace-nowrap"
                 >
                   {item.label}
                 </Link>
@@ -73,7 +73,10 @@ export async function SiteHeader() {
             <ThemeToggle />
           </div>
           <div className="hidden lg:block">
-            <ButtonLink href="/start" className="min-h-11 px-5 text-sm">
+            <ButtonLink
+              href="/start"
+              className="min-h-11 px-5 text-sm whitespace-nowrap"
+            >
               Начать играть
               <ArrowUpRight className="size-4" />
             </ButtonLink>
@@ -81,7 +84,7 @@ export async function SiteHeader() {
           <ButtonLink
             href={user ? "/dashboard" : "/login"}
             variant="secondary"
-            className="min-h-11 px-3.5 text-sm"
+            className="min-h-11 px-3.5 text-sm whitespace-nowrap"
           >
             {user ? "Кабинет" : "Войти"}
           </ButtonLink>

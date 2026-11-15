@@ -19,7 +19,7 @@ const SECTIONS: {
   { label: "Карта мира", href: "/map", flag: "ff_p1c_atlas" },
   { label: "Гайдбук", href: "/guide", always: true },
   { label: "События", href: "/social/calendar", flag: "ff_p1b_social" },
-  { label: "Проекты", href: "" },
+  { label: "Проекты", href: "/social/projects", flag: "ff_p1a" },
   { label: "Сообщество", href: "/social", flag: "ff_p1a" },
   { label: "Игроки", href: "/players", flag: "ff_p1a" },
   { label: "Гильдии", href: "/players?tab=guilds", flag: "ff_p1b_guilds" },

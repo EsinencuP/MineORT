@@ -15,11 +15,13 @@ import { getStageForUser } from "@/lib/onboarding/server";
 import { safely } from "@/lib/safe";
 import { isEnabled } from "@/lib/flags";
 import { getPublicServerInfo } from "@/lib/site/server-status";
+import { coverOf } from "@/components/projects/project-card";
 import { DashboardGuild } from "@/components/guilds/dashboard-guild";
 import { PrivacyForm } from "@/components/guilds/privacy-form";
 import { getMyGuild, getPrivacy } from "@/lib/guilds/store";
 import { nextEvent } from "@/lib/social/events";
 import { nextOpenPoll } from "@/lib/social/polls";
+import { myActiveProjects } from "@/lib/projects/store";
 import { latestNews } from "@/lib/social/store";
 import { getViewer } from "@/lib/social/viewer";
 import { DashboardView } from "@/components/portal/dashboard-view";
@@ -49,6 +51,9 @@ export default async function DashboardPage({
   const privacy = isEnabled("ff_p1a")
     ? await safely("privacy", () => getPrivacy(user.userId), null)
     : null;
+  const projects = isEnabled("ff_p1a")
+    ? await safely("my projects", () => myActiveProjects(user.userId), [])
+    : [];
   const news = isEnabled("ff_p1a")
     ? await safely("dashboard news", () => latestNews(4), [])
     : [];
@@ -128,7 +133,19 @@ export default async function DashboardPage({
               }
             : null
         }
-        projects={[]}
+        projects={projects.map((pr) => ({
+          title: pr.title,
+          description:
+            pr.description.length > 110
+              ? `${pr.description.slice(0, 110)}…`
+              : pr.description || pr.place || "Без описания",
+          progress: pr.progress,
+          progressLabel: `Готовность: ${pr.title}`,
+          role: pr.role,
+          next: pr.next,
+          coverSrc: coverOf(pr),
+          href: `/social/projects/${pr.id}`,
+        }))}
         vote={poll ? { ...poll, href: "/social/polls" } : null}
         feed={news.map((n) => ({
           kind: "Новость",

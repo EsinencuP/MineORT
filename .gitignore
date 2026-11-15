@@ -48,3 +48,6 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# raw material handed over by the owner; the derived files live in public/
+image_album/
