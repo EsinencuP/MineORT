@@ -4,6 +4,8 @@ export type MenuItem = {
   label: string;
   href: string;
   flag?: FlagName;
+  /** Other path prefixes that belong to this item (highlights it as the current section). */
+  also?: string[];
   children?: MenuItem[];
 };
 
@@ -46,12 +48,14 @@ export const MENU: MenuItem[] = [
     label: "Игроки",
     href: "/players",
     flag: "ff_p1a",
+    also: ["/guilds"],
     children: [
       { label: "Каталог игроков", href: "/players" },
       {
         label: "Гильдии",
         href: "/players?tab=guilds",
         flag: "ff_p1b_guilds",
+        also: ["/guilds"],
       },
     ],
   },

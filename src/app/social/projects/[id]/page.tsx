@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import {
   addNeedAction,
   cancelProjectAction,
@@ -32,6 +33,8 @@ import {
 import { safely } from "@/lib/safe";
 import { listMyGallery } from "@/lib/social/gallery";
 import { getViewer } from "@/lib/social/viewer";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
+import { safeBack, withBack } from "@/lib/nav/back";
 
 export const dynamic = "force-dynamic";
 
@@ -55,12 +58,17 @@ const OK_TEXTS = {
   cancelled: "Проект закрыт.",
 };
 
+// The metadata and the page need the same project: read it once per request.
+const loadProject = cache(async (id: string) =>
+  getProject(await getViewer(), id),
+);
+
 export async function generateMetadata({
   params,
 }: PageProps<"/social/projects/[id]">): Promise<Metadata> {
   const { id } = await params;
   if (!UUID.test(id)) return { title: "Проект" };
-  const p = await getProject(await getViewer(), id).catch(() => null);
+  const p = await loadProject(id).catch(() => null);
   return { title: p?.title ?? "Проект" };
 }
 
@@ -79,10 +87,10 @@ export default async function ProjectPage({
   const { id } = await params;
   const sp = await searchParams;
   if (!UUID.test(id)) notFound();
-  const viewer = await getViewer();
-  const p = await getProject(viewer, id);
+  const [viewer, p] = await Promise.all([getViewer(), loadProject(id)]);
   if (!p) notFound();
-  const here = `/social/projects/${id}`;
+  const listBack = safeBack(sp.back, ["/social/projects"]);
+  const here = withBack(`/social/projects/${id}`, listBack);
   const open = p.status === "recruiting" || p.status === "in_progress";
   const field =
     "bg-paper text-ink border-line min-h-11 rounded-xl border px-3 text-sm";
@@ -99,14 +107,16 @@ export default async function ProjectPage({
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-8 sm:py-10">
-      <p>
-        <Link
-          href="/social/projects"
-          className="text-brand-700 text-sm font-semibold underline underline-offset-4"
-        >
-          ← Все проекты
-        </Link>
-      </p>
+      <Breadcrumbs
+        items={[
+          { label: "Общение", href: "/social" },
+          { label: "Проекты", href: "/social/projects" },
+          { label: p.title },
+        ]}
+        back={
+          listBack ? { href: listBack, label: "← К результатам" } : undefined
+        }
+      />
 
       <div className="mt-4 flex flex-col gap-5">
         <Notice error={sp.error} ok={sp.ok} okTexts={OK_TEXTS} />

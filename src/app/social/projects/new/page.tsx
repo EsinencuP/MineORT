@@ -11,6 +11,7 @@ import { requireFlag } from "@/lib/flags";
 import { safely } from "@/lib/safe";
 import { listMyGallery } from "@/lib/social/gallery";
 import { getViewer } from "@/lib/social/viewer";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Новый проект" };
@@ -31,14 +32,13 @@ export default async function NewProjectPage({
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
-      <p>
-        <Link
-          href="/social/projects"
-          className="text-brand-700 text-sm font-semibold underline underline-offset-4"
-        >
-          ← Все проекты
-        </Link>
-      </p>
+      <Breadcrumbs
+        items={[
+          { label: "Общение", href: "/social" },
+          { label: "Проекты", href: "/social/projects" },
+          { label: "Новый проект" },
+        ]}
+      />
       <h1 className="mt-3 text-[clamp(1.9rem,5vw,2.8rem)] leading-tight">
         Новый проект
       </h1>

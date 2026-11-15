@@ -6,6 +6,7 @@ import {
   searchPublished,
   sanitizeQuery,
 } from "@/lib/guides/store";
+import { withBack } from "@/lib/nav/back";
 import { safely } from "@/lib/safe";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/states";
@@ -24,6 +25,8 @@ export default async function GuidePage({ searchParams }: PageProps<"/guide">) {
       ? await safely("guide search", () => searchPublished(q), [])
       : [];
   const all = searching ? [] : await safely("guide list", listPublished, []);
+  // Articles opened from a search remember it, so "back" returns to the same results.
+  const back = searching ? `/guide?q=${encodeURIComponent(raw.trim())}` : null;
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8">
@@ -71,7 +74,10 @@ export default async function GuidePage({ searchParams }: PageProps<"/guide">) {
             <ul className="flex flex-col gap-3">
               {results.map((a) => (
                 <li key={a.id}>
-                  <Link href={`/guide/${a.slug}`} className="block">
+                  <Link
+                    href={withBack(`/guide/${a.slug}`, back)}
+                    className="block"
+                  >
                     <Card>
                       <p className="font-semibold">{a.title}</p>
                       {a.summary && (

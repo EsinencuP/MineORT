@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import {
   leaveGuildAction,
   requestJoinAction,
@@ -22,14 +22,18 @@ import {
   listRoster,
 } from "@/lib/guilds/store";
 import { getViewer } from "@/lib/social/viewer";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 
 export const dynamic = "force-dynamic";
+
+// The metadata and the page need the same guild: read it once per request.
+const loadGuild = cache(getPublicGuild);
 
 export async function generateMetadata({
   params,
 }: PageProps<"/guilds/[slug]">): Promise<Metadata> {
   const { slug } = await params;
-  const g = await getPublicGuild(slug).catch(() => null);
+  const g = await loadGuild(slug).catch(() => null);
   return { title: g?.name ?? "Гильдия" };
 }
 
@@ -45,7 +49,7 @@ export default async function GuildPage({
   await requireFlag("ff_p1b_guilds");
   const { slug } = await params;
   const sp = await searchParams;
-  const guild = await getPublicGuild(slug);
+  const guild = await loadGuild(slug);
   if (!guild) notFound();
   const archived = guild.status === "archived";
   const [roster, internal, viewer] = await Promise.all([
@@ -63,14 +67,13 @@ export default async function GuildPage({
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-8 sm:py-10">
-      <p>
-        <Link
-          href="/players?tab=guilds"
-          className="text-brand-700 text-sm font-semibold underline underline-offset-4"
-        >
-          ← Все гильдии
-        </Link>
-      </p>
+      <Breadcrumbs
+        items={[
+          { label: "Игроки", href: "/players" },
+          { label: "Гильдии", href: "/players?tab=guilds" },
+          { label: guild.name },
+        ]}
+      />
       <header className="mt-4">
         <div className="flex flex-wrap items-center gap-3">
           <GuildTag tag={guild.tag} color={guild.color} className="text-base" />

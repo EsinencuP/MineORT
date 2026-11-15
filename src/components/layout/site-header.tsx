@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { visibleMenu } from "@/lib/menu";
 import { ButtonLink } from "@/components/ui/button";
 import { ArrowUpRight } from "@/components/ui/icons";
+import { DesktopNav } from "./desktop-nav";
 import { MobileNav } from "./mobile-nav";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -39,34 +40,7 @@ export async function SiteHeader() {
       <div className="flex min-h-[4.5rem] items-center justify-between gap-2 px-3 sm:gap-3 sm:px-8">
         <BrandMark />
 
-        <nav aria-label="Главное меню" className="hidden lg:block">
-          <ul className="flex items-center gap-1">
-            {items.map((item) => (
-              <li key={item.href + item.label} className="group relative">
-                <Link
-                  href={item.href}
-                  className="hover:bg-brand-50 flex min-h-11 items-center rounded-full px-3 text-sm whitespace-nowrap"
-                >
-                  {item.label}
-                </Link>
-                {item.children && (
-                  <ul className="border-line bg-paper invisible absolute top-full left-0 z-30 min-w-56 rounded-2xl border p-1.5 shadow-[var(--shadow-card)] group-focus-within:visible group-hover:visible">
-                    {item.children.map((child) => (
-                      <li key={child.href}>
-                        <Link
-                          href={child.href}
-                          className="hover:bg-brand-50 flex min-h-11 items-center rounded-xl px-3 text-sm"
-                        >
-                          {child.label}
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ul>
-        </nav>
+        <DesktopNav items={items} />
 
         <div className="flex items-center gap-2">
           <div className="hidden min-[380px]:block">

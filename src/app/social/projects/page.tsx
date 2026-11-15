@@ -148,7 +148,7 @@ export default async function ProjectsPage({
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-4">
             {result.projects.map((p) => (
               <li key={p.id}>
-                <ProjectListCard p={p} />
+                <ProjectListCard p={p} back={href({})} />
               </li>
             ))}
           </ul>

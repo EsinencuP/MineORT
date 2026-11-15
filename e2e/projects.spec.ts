@@ -364,3 +364,33 @@ test("a moderator closes a project with a reason; it disappears for others; the 
     .limit(1);
   expect(audit?.length).toBe(1);
 });
+
+test("a double click on «Создать проект» sends the form once", async ({
+  browser,
+}) => {
+  const bob = await asUser(browser, "bob");
+  const title = `Двойной клик ${RUN}`;
+  let sent = 0;
+  await bob.route("**/social/projects/new", async (route) => {
+    if (route.request().method() === "POST") {
+      sent += 1;
+      await new Promise((r) => setTimeout(r, 1200)); // a slow server
+    }
+    await route.continue();
+  });
+  await bob.goto("/social/projects/new");
+  await bob.getByLabel("Название", { exact: true }).fill(title);
+  await bob.getByLabel("Потребность 1", { exact: true }).fill("Камень");
+  // The label changes to «Создаём…» while sending, so find the button by its type.
+  const submit = bob.locator('form button[type="submit"]');
+  await submit.dblclick();
+  await expect(submit).toBeDisabled();
+  await expect(submit).toHaveAttribute("aria-busy", "true");
+  await expect(bob.getByText("Проект создан.")).toBeVisible();
+  expect(sent).toBe(1);
+  const { count } = await db
+    .from("projects")
+    .select("id", { count: "exact", head: true })
+    .eq("title", title);
+  expect(count).toBe(1);
+});

@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { hasConfirmedTotp } from "@/lib/admin/store";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { db } from "@/lib/supabase-admin";
@@ -24,7 +25,8 @@ export const GUEST: Viewer = {
   canModerate: false,
 };
 
-export async function getViewer(): Promise<Viewer> {
+/** Memoised per request: the page and its metadata resolve the viewer once. */
+export const getViewer = cache(async (): Promise<Viewer> => {
   const user = await getCurrentUser();
   if (!user) return GUEST;
   // Staff powers need a staff (12 h) session and confirmed TOTP, exactly like /admin (AC-34).
@@ -59,7 +61,7 @@ export async function getViewer(): Promise<Viewer> {
     canPublish: cls === "member",
     canModerate: false,
   };
-}
+});
 
 /** Can this viewer read a post? Hidden and deleted posts are never shown here (staff use the queue). */
 export function canSeePost(

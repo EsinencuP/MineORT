@@ -1,14 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cache } from "react";
 import { notFound } from "next/navigation";
 import { moderateMediaAction, reportMediaAction } from "@/app/actions/social";
 import { GalleryKeyNav } from "@/components/social/gallery-key-nav";
 import { PendingButton } from "@/components/social/pending-button";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireFlag } from "@/lib/flags";
 import { CATEGORIES, getGalleryItem } from "@/lib/social/gallery";
+import { safeBack, withBack } from "@/lib/nav/back";
 import { getViewer } from "@/lib/social/viewer";
 
 export const dynamic = "force-dynamic";
@@ -20,12 +23,17 @@ const OK_TEXTS = {
   saved: "Изменения сохранены.",
 };
 
+// The metadata and the page need the same record: read it once per request.
+const loadItem = cache(async (id: string) =>
+  getGalleryItem(await getViewer(), id),
+);
+
 export async function generateMetadata({
   params,
 }: PageProps<"/social/gallery/[id]">): Promise<Metadata> {
   const { id } = await params;
   if (!UUID.test(id)) return { title: "Галерея" };
-  const found = await getGalleryItem(await getViewer(), id).catch(() => null);
+  const found = await loadItem(id).catch(() => null);
   return { title: found?.item.caption || "Скриншот" };
 }
 
@@ -45,30 +53,36 @@ export default async function GalleryItemPage({
   const { id } = await params;
   const sp = await searchParams;
   if (!UUID.test(id)) notFound();
-  const viewer = await getViewer();
-  const found = await getGalleryItem(viewer, id);
+  const [viewer, found] = await Promise.all([getViewer(), loadItem(id)]);
   if (!found) notFound(); // hidden, private, deleted and unknown look the same
   const { item, prev, next, usedIn, isOwner } = found;
-  const back = isOwner ? "/social/gallery?mine=1" : "/social/gallery";
-  const here = `/social/gallery/${id}`;
+  // The list this screenshot was opened from, with its filters and page; a safe default otherwise.
+  const listBack = safeBack(sp.back, ["/social/gallery"]);
+  const back =
+    listBack ?? (isOwner ? "/social/gallery?mine=1" : "/social/gallery");
+  const here = withBack(`/social/gallery/${id}`, listBack);
+  const hasFilters = !!listBack && listBack !== "/social/gallery";
   const field =
     "bg-paper text-ink border-line min-h-11 rounded-xl border px-3 text-sm";
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
       <GalleryKeyNav
-        prev={prev ? `/social/gallery/${prev}` : null}
-        next={next ? `/social/gallery/${next}` : null}
+        prev={prev ? withBack(`/social/gallery/${prev}`, listBack) : null}
+        next={next ? withBack(`/social/gallery/${next}`, listBack) : null}
         back={back}
       />
-      <p>
-        <Link
-          href={back}
-          className="text-brand-700 text-sm font-semibold underline underline-offset-4"
-        >
-          ← В галерею
-        </Link>
-      </p>
+      <Breadcrumbs
+        items={[
+          { label: "Общение", href: "/social" },
+          { label: "Галерея", href: "/social/gallery" },
+          { label: item.caption || "Скриншот" },
+        ]}
+        back={{
+          href: back,
+          label: hasFilters ? "← К результатам" : "← В галерею",
+        }}
+      />
 
       <div className="mt-4 flex flex-col gap-4">
         <Notice error={sp.error} ok={sp.ok} okTexts={OK_TEXTS} />
@@ -87,7 +101,7 @@ export default async function GalleryItemPage({
         <div className="flex flex-wrap items-center justify-between gap-3">
           {prev ? (
             <Link
-              href={`/social/gallery/${prev}`}
+              href={withBack(`/social/gallery/${prev}`, listBack)}
               rel="prev"
               className="border-line hover:bg-brand-50 inline-flex min-h-11 items-center rounded-full border px-5 text-sm font-semibold"
             >
@@ -101,7 +115,7 @@ export default async function GalleryItemPage({
           </span>
           {next ? (
             <Link
-              href={`/social/gallery/${next}`}
+              href={withBack(`/social/gallery/${next}`, listBack)}
               rel="next"
               className="border-line hover:bg-brand-50 inline-flex min-h-11 items-center rounded-full border px-5 text-sm font-semibold"
             >

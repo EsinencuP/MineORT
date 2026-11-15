@@ -254,3 +254,31 @@ h2 {
     scroll-behavior: auto !important;
   }
 }
+
+/* Navigation feedback (audit N-01): a bar under the top edge, dimmed old content, progress cursor. */
+.nav-progress {
+  background: var(--brand-500);
+  transform-origin: left center;
+  animation: nav-progress 9s cubic-bezier(0.1, 0.6, 0.2, 1) forwards;
+}
+@keyframes nav-progress {
+  from {
+    transform: scaleX(0.04);
+  }
+  to {
+    transform: scaleX(0.92);
+  }
+}
+html[data-nav-pending] {
+  cursor: progress;
+}
+html[data-nav-pending] main {
+  opacity: 0.6;
+  transition: opacity 0.2s ease 0.12s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-progress {
+    animation: none;
+    transform: scaleX(0.6);
+  }
+}

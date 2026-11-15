@@ -37,27 +37,39 @@ export default async function DashboardPage({
   const user = await requireUser("/dashboard");
   const sp = await searchParams;
   const social = isEnabled("ff_p1b_social");
-  const viewer = social ? await getViewer() : null;
-  const event = viewer
-    ? await safely("dashboard event", () => nextEvent(viewer), null)
-    : null;
-  const poll = social
-    ? await safely("dashboard poll", () => nextOpenPoll(user.userId), null)
-    : null;
   const guildsOn = isEnabled("ff_p1b_guilds");
-  const myGuild = guildsOn
-    ? await safely("my guild", () => getMyGuild(user.userId), null)
-    : null;
-  const privacy = isEnabled("ff_p1a")
-    ? await safely("privacy", () => getPrivacy(user.userId), null)
-    : null;
-  const projects = isEnabled("ff_p1a")
-    ? await safely("my projects", () => myActiveProjects(user.userId), [])
-    : [];
-  const news = isEnabled("ff_p1a")
-    ? await safely("dashboard news", () => latestNews(4), [])
-    : [];
-  const [o, wl, tg, settings, st, info] = await Promise.all([
+  const p1a = isEnabled("ff_p1a");
+
+  // Every block is independent, so they all start together and the page waits for the slowest
+  // one instead of the sum (audit N-06). Optional blocks fall back to "nothing" on their own.
+  const [
+    event,
+    poll,
+    myGuild,
+    privacy,
+    projects,
+    news,
+    o,
+    wl,
+    tg,
+    settings,
+    st,
+    info,
+  ] = await Promise.all([
+    social
+      ? safely(
+          "dashboard event",
+          async () => nextEvent(await getViewer()),
+          null,
+        )
+      : null,
+    social
+      ? safely("dashboard poll", () => nextOpenPoll(user.userId), null)
+      : null,
+    guildsOn ? safely("my guild", () => getMyGuild(user.userId), null) : null,
+    p1a ? safely("privacy", () => getPrivacy(user.userId), null) : null,
+    p1a ? safely("my projects", () => myActiveProjects(user.userId), []) : [],
+    p1a ? safely("dashboard news", () => latestNews(4), []) : [],
     getAccessOverview(user.userId),
     getWhitelistState(user.userId),
     getTelegramBinding(user.userId),
@@ -165,7 +177,7 @@ export default async function DashboardPage({
         botConnected={false}
         canInvite={user.site_role === "admin"}
         supportContact={settings.support_contact || null}
-        nav={portalItems("/dashboard")}
+        nav={portalItems()}
         settings={{ rulesAccepted: o.rulesAccepted }}
         accountActions={
           <>

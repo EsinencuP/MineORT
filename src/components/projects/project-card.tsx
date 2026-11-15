@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ProgressBar } from "@/components/portal/cards";
 import { StatusBadge, type BadgeTone } from "@/components/ui/status-badge";
+import { withBack } from "@/lib/nav/back";
 import {
   STATUS_LABEL,
   type ProjectCardData,
@@ -27,10 +28,16 @@ export const coverOf = (p: {
   p.coverMediaId ? `/api/media/${p.coverMediaId}` : FALLBACK_COVER[p.status];
 
 /** A project in the list: cover, title, place, progress, how many helpers. */
-export function ProjectListCard({ p }: { p: ProjectCardData }) {
+export function ProjectListCard({
+  p,
+  back,
+}: {
+  p: ProjectCardData;
+  back?: string;
+}) {
   return (
     <Link
-      href={`/social/projects/${p.id}`}
+      href={withBack(`/social/projects/${p.id}`, back)}
       className="border-line bg-surface hover:bg-brand-50 lift flex h-full flex-col overflow-hidden rounded-2xl border"
     >
       <span className="art-bg block aspect-[16/9]">

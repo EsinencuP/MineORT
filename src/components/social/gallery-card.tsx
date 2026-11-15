@@ -1,12 +1,20 @@
 import Link from "next/link";
+import { withBack } from "@/lib/nav/back";
 import { CATEGORIES, type GalleryItem } from "@/lib/social/gallery";
 
 /** One thumbnail in the gallery grid; the whole card opens the viewer. */
-export function GalleryCard({ item }: { item: GalleryItem }) {
+export function GalleryCard({
+  item,
+  back,
+}: {
+  item: GalleryItem;
+  /** The list address (filters, page) this card is shown on, so the viewer can return to it. */
+  back?: string;
+}) {
   const alt = item.caption || `Скриншот игрока ${item.owner}`;
   return (
     <Link
-      href={`/social/gallery/${item.id}`}
+      href={withBack(`/social/gallery/${item.id}`, back)}
       className="border-line bg-surface hover:bg-brand-50 lift group flex h-full flex-col overflow-hidden rounded-2xl border"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}

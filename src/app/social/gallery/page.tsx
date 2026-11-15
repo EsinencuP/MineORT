@@ -457,7 +457,7 @@ export default async function GalleryPage({
             <ul className={gridClass}>
               {pub.items.map((g) => (
                 <li key={g.id}>
-                  <GalleryCard item={g} />
+                  <GalleryCard item={g} back={href({})} />
                 </li>
               ))}
             </ul>

@@ -388,11 +388,15 @@ export function NotifyCard({ connected }: { connected: boolean }) {
           : "Подключи нашего Telegram-бота, чтобы получать напоминания об ивентах и важных событиях. Только с твоего согласия."}
       </p>
       <div className="mt-auto">
+        {/* Not live yet, so it must not look like a button: dashed outline, muted text, "Скоро" inside. */}
         <span
-          className="bg-tg inline-flex min-h-11 items-center rounded-full px-5 text-sm font-semibold text-white opacity-90"
-          aria-disabled="true"
+          title="Скоро"
+          className="border-line text-ink-muted inline-flex min-h-11 cursor-not-allowed items-center gap-2 rounded-full border border-dashed px-5 text-sm"
         >
           {connected ? "Настройки уведомлений" : "Подключить уведомления"}
+          <span className="bg-line rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide uppercase">
+            скоро
+          </span>
         </span>
         <p className="text-ink-muted mt-2 text-xs">
           Подключение бота появится в ближайшем обновлении.
@@ -419,7 +423,7 @@ export function QuickActions({
         <li key={a.label}>
           {a.disabledHint ? (
             <span
-              className="border-line text-ink-muted flex min-h-16 items-center gap-3 rounded-2xl border border-dashed px-4 py-3 text-sm"
+              className="border-line text-ink-muted flex min-h-16 cursor-not-allowed items-center gap-3 rounded-2xl border border-dashed px-4 py-3 text-sm"
               title={a.disabledHint}
             >
               <span aria-hidden="true">{a.icon}</span>

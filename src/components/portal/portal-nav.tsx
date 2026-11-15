@@ -1,12 +1,9 @@
 import Link from "next/link";
 import { isEnabled, type FlagName } from "@/lib/flags";
 import { MinecraftAvatar } from "./minecraft-avatar";
+import { PortalTabs, type PortalTab } from "./portal-tabs";
 
-export type PortalNavItem = {
-  label: string;
-  href: string | null;
-  active?: boolean;
-};
+export type PortalNavItem = PortalTab;
 
 /** Sections of the portal. A section without a live page is shown as "скоро", never as a dead link. */
 const SECTIONS: {
@@ -14,28 +11,42 @@ const SECTIONS: {
   href: string;
   flag?: FlagName;
   always?: boolean;
+  also?: string[];
 }[] = [
   { label: "Мой MineOrt", href: "/dashboard", always: true },
   { label: "Карта мира", href: "/map", flag: "ff_p1c_atlas" },
   { label: "Гайдбук", href: "/guide", always: true },
   { label: "События", href: "/social/calendar", flag: "ff_p1b_social" },
   { label: "Проекты", href: "/social/projects", flag: "ff_p1a" },
-  { label: "Сообщество", href: "/social", flag: "ff_p1a" },
+  { label: "Лента", href: "/social", flag: "ff_p1a" },
   { label: "Игроки", href: "/players", flag: "ff_p1a" },
-  { label: "Гильдии", href: "/players?tab=guilds", flag: "ff_p1b_guilds" },
+  {
+    label: "Гильдии",
+    href: "/players?tab=guilds",
+    flag: "ff_p1b_guilds",
+    also: ["/guilds"],
+  },
   { label: "Галерея", href: "/social/gallery", flag: "ff_p1a" },
   { label: "Голосования", href: "/social/polls", flag: "ff_p1b_social" },
 ];
 
-export function portalItems(active = "/dashboard"): PortalNavItem[] {
+export function portalItems(): PortalNavItem[] {
   return SECTIONS.map((s) => {
     const live = s.always || (s.flag && s.href && isEnabled(s.flag));
-    return {
-      label: s.label,
-      href: live ? s.href : null,
-      active: s.href === active,
-    };
+    return { label: s.label, href: live ? s.href : null, also: s.also };
   });
+}
+
+/** The same section bar for the shared layouts of social, players, guilds and the guide. */
+export function SectionNav() {
+  return (
+    <nav
+      aria-label="Разделы портала"
+      className="mx-4 flex items-center gap-2 pt-1 sm:mx-8"
+    >
+      <PortalTabs items={portalItems()} />
+    </nav>
+  );
 }
 
 export function PortalNav({
@@ -50,33 +61,7 @@ export function PortalNav({
       aria-label="Разделы портала"
       className="mx-4 flex items-center gap-2 sm:mx-8"
     >
-      <ul className="flex min-w-0 flex-1 [scrollbar-width:none] gap-1 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden">
-        {items.map((i) => (
-          <li key={i.label} className="shrink-0">
-            {i.href ? (
-              <Link
-                href={i.href}
-                aria-current={i.active ? "page" : undefined}
-                className={`flex min-h-11 items-center rounded-full px-4 text-sm font-semibold transition-colors ${
-                  i.active ? "bg-brand-600 text-on-brand" : "hover:bg-brand-50"
-                }`}
-              >
-                {i.label}
-              </Link>
-            ) : (
-              <span
-                className="text-ink-muted flex min-h-11 items-center gap-1.5 rounded-full px-4 text-sm"
-                title="Скоро"
-              >
-                {i.label}
-                <span className="bg-line rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide uppercase">
-                  скоро
-                </span>
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
+      <PortalTabs items={items} />
       <div className="flex shrink-0 items-center gap-2">
         <span
           title="Уведомления появятся в ближайшем обновлении"

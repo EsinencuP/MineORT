@@ -98,7 +98,7 @@ const server = {
   version: "Paper 26.3",
   address: "play.mineort.example",
 };
-const nav = portalItems("/dashboard");
+const nav = portalItems();
 
 function dash(
   over: Partial<DashboardProps> & { stage: OnboardingStage },

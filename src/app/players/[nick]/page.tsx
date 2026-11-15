@@ -11,6 +11,8 @@ import { getPlayerProfile, userIdByNick } from "@/lib/guilds/store";
 import { isEnabled } from "@/lib/flags";
 import { safely } from "@/lib/safe";
 import { listPublicGallery } from "@/lib/social/gallery";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
+import { safeBack } from "@/lib/nav/back";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +33,11 @@ const fmt = (iso: string) =>
 
 export default async function PlayerPage({
   params,
+  searchParams,
 }: PageProps<"/players/[nick]">) {
   await requireFlag("ff_p1a");
   const { nick } = await params;
+  const listBack = safeBack((await searchParams).back, ["/players"]);
   const profile = await getPlayerProfile(nick);
   if (!profile) notFound(); // candidates, rejected, suspended and unknown nicks look the same
   const shots = isEnabled("ff_p1a")
@@ -50,14 +54,15 @@ export default async function PlayerPage({
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
-      <p>
-        <Link
-          href="/players"
-          className="text-brand-700 text-sm font-semibold underline underline-offset-4"
-        >
-          ← Все игроки
-        </Link>
-      </p>
+      <Breadcrumbs
+        items={[
+          { label: "Игроки", href: "/players" },
+          { label: profile.nickname },
+        ]}
+        back={
+          listBack ? { href: listBack, label: "← К результатам" } : undefined
+        }
+      />
       <header className="mt-4 flex flex-wrap items-center gap-4">
         <MinecraftAvatar nick={profile.nickname} size={88} />
         <div className="min-w-0">

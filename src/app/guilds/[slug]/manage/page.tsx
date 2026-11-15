@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   assignRankAction,
@@ -20,6 +19,7 @@ import {
   getManageData,
   levelInGuild,
 } from "@/lib/guilds/store";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Управление гильдией" };
@@ -55,14 +55,14 @@ export default async function ManageGuildPage({
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-8 sm:py-10">
-      <p>
-        <Link
-          href={`/guilds/${slug}`}
-          className="text-brand-700 text-sm font-semibold underline underline-offset-4"
-        >
-          ← {guild.name}
-        </Link>
-      </p>
+      <Breadcrumbs
+        items={[
+          { label: "Игроки", href: "/players" },
+          { label: "Гильдии", href: "/players?tab=guilds" },
+          { label: guild.name, href: `/guilds/${slug}` },
+          { label: "Управление" },
+        ]}
+      />
       <h1 className="mt-3 text-[clamp(1.8rem,5vw,2.6rem)] leading-tight">
         Управление гильдией
       </h1>

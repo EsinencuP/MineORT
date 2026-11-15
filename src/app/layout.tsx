@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import localFont from "next/font/local";
+import { Suspense } from "react";
+import { NavProgress } from "@/components/layout/nav-progress";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { THEME_INIT_SCRIPT } from "@/components/layout/theme-toggle";
@@ -56,6 +58,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full">
         <ToastProvider>
+          <Suspense fallback={null}>
+            <NavProgress />
+          </Suspense>
           {/* Blurred voxel leaves and clouds frame the page card, like the reference background. */}
           <div
             aria-hidden="true"

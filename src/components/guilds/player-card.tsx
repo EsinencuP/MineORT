@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { MinecraftAvatar } from "@/components/portal/minecraft-avatar";
 import type { PublicMember } from "@/lib/guilds/store";
+import { withBack } from "@/lib/nav/back";
 import { GuildTag } from "./guild-tag";
 
-export function PlayerCard({ p }: { p: PublicMember }) {
+export function PlayerCard({ p, back }: { p: PublicMember; back?: string }) {
   return (
     <Link
-      href={`/players/${p.nickname}`}
+      href={withBack(`/players/${p.nickname}`, back)}
       className="border-line bg-surface hover:bg-brand-50 lift flex items-center gap-3 rounded-2xl border p-3"
     >
       <MinecraftAvatar nick={p.nickname} size={48} />

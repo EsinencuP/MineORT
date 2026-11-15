@@ -169,7 +169,7 @@ export default async function PlayersPage({
               <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {result.players.map((p) => (
                   <li key={p.nickname}>
-                    <PlayerCard p={p} />
+                    <PlayerCard p={p} back={pager(page)} />
                   </li>
                 ))}
               </ul>
