@@ -5,6 +5,7 @@ import {
   mapServerId,
   MAX_REGIONS_PER_REQUEST,
 } from "@/lib/map/server";
+import { clientIp, withinRateLimit } from "@/lib/auth/store";
 import { flagGuard } from "@/lib/flags";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,15 @@ const PAIR = /^-?\d{1,5}:-?\d{1,5}$/;
 export async function GET(req: NextRequest) {
   const off = flagGuard("ff_p1c_atlas");
   if (off) return off;
+  // a viewer needs a handful of requests a minute; this stops one address from hammering the build
+  if (
+    !(await withinRateLimit(`map:regions:${clientIp(req.headers)}`, 60, 120))
+  ) {
+    return NextResponse.json(
+      { error: "rate limited" },
+      { status: 429, headers: { "Retry-After": "10" } },
+    );
+  }
   const q = req.nextUrl.searchParams;
   const dim = q.get("dim");
   if (dim !== "overworld" && dim !== "nether") {

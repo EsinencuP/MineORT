@@ -166,4 +166,55 @@ describe.skipIf(!enabled)("region rebuild", () => {
     );
     expect(out).toEqual([]);
   });
+
+  it("serves a recently changed region as it was instead of rebuilding it", async () => {
+    await ingest([chunk(160, 0, 4, true)]); // region 5,0 appears
+    await loadRegions(serverId, "overworld", [{ rx: 5, rz: 0 }], new Map()); // builds it
+    await ingest([chunk(160, 0, 5, false)]); // changes it: dirty, but only just
+
+    const out = await loadRegions(
+      serverId,
+      "overworld",
+      [{ rx: 5, rz: 0 }],
+      new Map(),
+    );
+    expect(out[0].version).toBe(4); // the old layer
+    expect((await stored(5, 0)).dirty).toBe(true); // and not rebuilt by this request
+  });
+
+  it("rebuilds a region that has stayed dirty for too long", async () => {
+    await db()
+      .from("map_regions")
+      .update({ dirty_at: new Date(Date.now() - 60_000).toISOString() })
+      .eq("server_id", serverId)
+      .eq("rx", 5)
+      .eq("rz", 0);
+    const out = await loadRegions(
+      serverId,
+      "overworld",
+      [{ rx: 5, rz: 0 }],
+      new Map(),
+    );
+    expect(out[0].version).toBe(5);
+    expect((await stored(5, 0)).dirty).toBe(false);
+  });
+
+  it("builds at most two unbuilt regions for one request", async () => {
+    await ingest([
+      chunk(192, 0, 1, true),
+      chunk(224, 0, 1, true),
+      chunk(256, 0, 1, true),
+    ]);
+    const out = await loadRegions(
+      serverId,
+      "overworld",
+      [
+        { rx: 6, rz: 0 },
+        { rx: 7, rz: 0 },
+        { rx: 8, rz: 0 },
+      ],
+      new Map(),
+    );
+    expect(out).toHaveLength(2);
+  });
 });

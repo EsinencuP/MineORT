@@ -424,7 +424,7 @@ export function MapView() {
       {status === "empty" && (
         <div
           role="status"
-          className="absolute inset-0 grid place-items-center p-6 text-center"
+          className="pointer-events-none absolute inset-0 grid place-items-center p-6 text-center"
         >
           <p className="max-w-sm rounded-lg bg-[#fbf3dc]/90 p-4 text-[#3a3026]">
             Карта откроется, когда игроки начнут исследовать мир.
@@ -442,9 +442,9 @@ export function MapView() {
       {status === "error" && (
         <div
           role="alert"
-          className="absolute inset-0 grid place-items-center p-6 text-center"
+          className="pointer-events-none absolute inset-0 grid place-items-center p-6 text-center"
         >
-          <div className="rounded-lg bg-[#fbf3dc]/95 p-4 text-[#3a3026]">
+          <div className="pointer-events-auto rounded-lg bg-[#fbf3dc]/95 p-4 text-[#3a3026]">
             <p className="mb-2">Не удалось загрузить карту.</p>
             <button
               type="button"

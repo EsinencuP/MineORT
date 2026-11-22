@@ -4,6 +4,10 @@ import { rebuildRegion, type Dim } from "./regions";
 import type { Layer } from "./vectorize";
 
 export const MAX_REGIONS_PER_REQUEST = 9;
+/** A viewer may trigger at most this many rebuilds per request; the rest are served as they are. */
+const MAX_REBUILDS_PER_REQUEST = 2;
+/** The ingest pipeline gets this long to rebuild a changed region before a viewer's request does. */
+const REBUILD_AFTER_MS = 20_000;
 
 export type RegionPayload =
   | { rx: number; rz: number; version: number; unchanged: true }
@@ -25,12 +29,27 @@ type Row = {
   layer: Layer | null;
   built_version: number;
   dirty: boolean;
+  dirty_at: string;
 };
+
+// one rebuild per region at a time on this instance, however many viewers ask
+const building = new Map<string, Promise<boolean>>();
+function rebuildOnce(serverId: string, dim: Dim, rx: number, rz: number) {
+  const key = `${serverId}:${dim}:${rx}:${rz}`;
+  let run = building.get(key);
+  if (!run) {
+    run = rebuildRegion({ serverId, dim, rx, rz }).finally(() =>
+      building.delete(key),
+    );
+    building.set(key, run);
+  }
+  return run;
+}
 
 async function readRow(serverId: string, dim: Dim, rx: number, rz: number) {
   const { data, error } = await db()
     .from("map_regions")
-    .select("layer, built_version, dirty")
+    .select("layer, built_version, dirty, dirty_at")
     .eq("server_id", serverId)
     .eq("dim", dim)
     .eq("rx", rx)
@@ -41,7 +60,8 @@ async function readRow(serverId: string, dim: Dim, rx: number, rz: number) {
 }
 
 /**
- * The drawn layers of the requested regions. A region still waiting for a rebuild is rebuilt now.
+ * The drawn layers of the requested regions. A region with no layer yet is built now; a changed
+ * region is served as it was until the ingest pipeline has had time to rebuild it.
  * A region the viewer already holds at the same version comes back as `unchanged`; a region nobody
  * has explored is left out.
  */
@@ -52,14 +72,20 @@ export async function loadRegions(
   known: Map<string, number>,
 ): Promise<RegionPayload[]> {
   const out: RegionPayload[] = [];
+  let rebuilds = 0;
   for (const { rx, rz } of refs.slice(0, MAX_REGIONS_PER_REQUEST)) {
     let row = await readRow(serverId, dim, rx, rz);
     if (!row) continue;
-    if (row.dirty || !row.layer) {
-      await rebuildRegion({ serverId, dim, rx, rz });
+    // A built region that changed a moment ago is served as it is. Rebuilding is for a region that
+    // has no layer yet, or that the ingest pipeline has left dirty for too long.
+    const overdue =
+      row.dirty && Date.now() - Date.parse(row.dirty_at) > REBUILD_AFTER_MS;
+    if ((!row.layer || overdue) && rebuilds < MAX_REBUILDS_PER_REQUEST) {
+      rebuilds++;
+      await rebuildOnce(serverId, dim, rx, rz);
       row = await readRow(serverId, dim, rx, rz);
-      if (!row?.layer) continue;
     }
+    if (!row?.layer) continue;
     const version = Number(row.built_version);
     if (known.get(`${rx}:${rz}`) === version) {
       out.push({ rx, rz, version, unchanged: true });
