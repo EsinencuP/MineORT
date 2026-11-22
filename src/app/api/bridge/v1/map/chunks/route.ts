@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { authenticateBridge, bridgeJson, isAuthError } from "@/lib/bridge/auth";
 import { parseChunkBatch } from "@/lib/map/ingest";
+import { rebuildRegions, type Dim } from "@/lib/map/regions";
 import { db } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +63,29 @@ export async function POST(req: NextRequest) {
         cz: row.out_cz,
         result: row.out_stored ? "stored" : "stale",
       });
+    }
+    // Redraw the regions this batch changed. A failed build is not an error for the plugin: the
+    // region stays dirty and is built when a viewer asks for it.
+    try {
+      await rebuildRegions(
+        (
+          data as {
+            out_dim: Dim;
+            out_cx: number;
+            out_cz: number;
+            out_stored: boolean;
+          }[]
+        )
+          .filter((row) => row.out_stored)
+          .map((row) => ({
+            serverId: auth.serverId,
+            dim: row.out_dim,
+            rx: row.out_cx >> 5,
+            rz: row.out_cz >> 5,
+          })),
+      );
+    } catch (error) {
+      console.error("map region rebuild failed", error);
     }
   }
   return bridgeJson({ results });

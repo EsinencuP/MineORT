@@ -68,13 +68,13 @@ const stored = async (cx: number, cz: number) => {
 const region = async (rx: number, rz: number) => {
   const { data } = await db()
     .from("map_regions")
-    .select("dirty")
+    .select("dirty, layer")
     .eq("server_id", serverId)
     .eq("dim", "overworld")
     .eq("rx", rx)
     .eq("rz", rz)
     .maybeSingle();
-  return data as { dirty: boolean } | null;
+  return data as { dirty: boolean; layer: unknown } | null;
 };
 
 describe.skipIf(!enabled)("map chunk ingest", () => {
@@ -89,33 +89,30 @@ describe.skipIf(!enabled)("map chunk ingest", () => {
     await db().from("bridge_servers").delete().eq("id", serverId);
   });
 
-  it("stores a signed batch and marks each touched region dirty", async () => {
+  it("stores a signed batch and builds each touched region", async () => {
     const batch = Array.from({ length: 50 }, (_, i) => chunk(i, 0, 10));
     const r = await send({ chunks: batch });
     expect(r.status).toBe(200);
     expect(r.body.results).toHaveLength(50);
     expect(r.body.results.every((x: any) => x.result === "stored")).toBe(true);
     expect(await stored(7, 0)).toBe(10);
-    expect(await region(0, 0)).toEqual({ dirty: true });
-    expect(await region(1, 0)).toEqual({ dirty: true }); // chunks 32..49 fall into region 1
+    expect(await region(0, 0)).toMatchObject({ dirty: false });
+    expect((await region(0, 0))!.layer).not.toBeNull();
+    expect(await region(1, 0)).toMatchObject({ dirty: false }); // chunks 32..49 fall into region 1
   });
 
   it("puts negative chunk coordinates into the region below zero", async () => {
     await send({ chunks: [chunk(-1, -1, 10)] });
-    expect(await region(-1, -1)).toEqual({ dirty: true });
+    expect(await region(-1, -1)).toMatchObject({ dirty: false });
+    expect((await region(-1, -1))!.layer).not.toBeNull();
   });
 
-  it("reports a repeated batch as stale and changes nothing", async () => {
+  it("reports a repeated batch as stale and leaves the built region alone", async () => {
     await send({ chunks: [chunk(100, 100, 5)] });
-    await db()
-      .from("map_regions")
-      .update({ dirty: false })
-      .eq("server_id", serverId)
-      .eq("rx", 3)
-      .eq("rz", 3);
+    expect(await region(3, 3)).toMatchObject({ dirty: false });
     const again = await send({ chunks: [chunk(100, 100, 5)] });
     expect(again.body.results[0].result).toBe("stale");
-    expect(await region(3, 3)).toEqual({ dirty: false });
+    expect(await region(3, 3)).toMatchObject({ dirty: false });
   });
 
   it("does not let an older version overwrite a newer one", async () => {
