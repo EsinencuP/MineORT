@@ -15,7 +15,8 @@ export type Dot = {
   seen: number;
 };
 
-export type FeedState = "connecting" | "live" | "guest" | "offline";
+export type FeedState =
+  "connecting" | "live" | "guest" | "nonmember" | "offline";
 
 type Wire = {
   n: string;
@@ -50,6 +51,7 @@ export class PlayerFeed {
         cache: "no-store",
       });
       if (res.status === 401) return this.onState("guest");
+      if (res.status === 403) return this.onState("nonmember");
       if (!res.ok) return this.onState("offline");
       const first = (await res.json()) as {
         token: string;

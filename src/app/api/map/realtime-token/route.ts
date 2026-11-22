@@ -25,6 +25,9 @@ export async function GET() {
     );
 
   const viewer = await loadViewer(user);
+  // being signed in is not enough: the map shows players to approved members and staff only
+  if (!viewer.member && !viewer.staff)
+    return NextResponse.json({ error: "members only" }, { status: 403 });
 
   try {
     const { token, expiresAt, claims } = await signRealtimeToken(viewer);

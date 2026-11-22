@@ -10,7 +10,21 @@ export async function loadViewer(user: {
   userId: string;
   site_role: string;
   isAdminSession: boolean;
-}): Promise<{ userId: string; guildId: string | null; staff: boolean }> {
+}): Promise<{
+  userId: string;
+  guildId: string | null;
+  staff: boolean;
+  /** an approved community member: only they, and staff, may see players */
+  member: boolean;
+}> {
+  const { data: membership, error: memberError } = await db()
+    .from("access_memberships")
+    .select("status")
+    .eq("user_id", user.userId)
+    .eq("status", "approved")
+    .maybeSingle();
+  if (memberError)
+    throw new Error(`access_memberships select: ${memberError.message}`);
   const { data, error } = await db()
     .from("guild_members")
     .select("guild_id")
@@ -37,5 +51,6 @@ export async function loadViewer(user: {
     userId: user.userId,
     guildId,
     staff,
+    member: !!membership,
   };
 }

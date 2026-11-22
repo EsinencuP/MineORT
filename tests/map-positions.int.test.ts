@@ -228,6 +228,18 @@ describe.skipIf(!enabled)("live positions (staging)", () => {
     expect(v).toMatchObject({ guildId, staff: false });
   });
 
+  it("does not count a signed-in user without an approved membership as a member", async () => {
+    const { userId } = await upsertTelegramUser({
+      telegramId: String(7_000_000_000 + randomInt(1_000_000_000)),
+      username: "n_" + randomUUID().slice(0, 6),
+      name: "n",
+    });
+    users.push(userId);
+    const v = await loadViewer(asPlayer(userId));
+    expect(v).toMatchObject({ member: false, staff: false });
+    expect((await loadViewer(asPlayer(owner.userId))).member).toBe(true);
+  });
+
   it("gives a member without a guild no guild channel", async () => {
     expect((await loadViewer(asPlayer(loner.userId))).guildId).toBeNull();
   });

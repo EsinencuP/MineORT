@@ -469,6 +469,14 @@ export function MapView() {
           Войдите, чтобы видеть игроков
         </a>
       )}
+      {feedState === "nonmember" && (
+        <p
+          role="status"
+          className="pointer-events-none absolute right-3 bottom-3 rounded-full bg-[#fbf3dc]/90 px-4 py-1.5 text-sm text-[#3a3026]"
+        >
+          Игроков видят участники сообщества
+        </p>
+      )}
       {feedState === "offline" && (
         <p
           role="status"
