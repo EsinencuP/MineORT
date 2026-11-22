@@ -55,6 +55,7 @@ const tables: Record<string, Record<string, unknown>> = {
   bridge_servers: { name: "x" },
   map_chunks: { dim: "overworld", cx: 0, cz: 0 },
   map_regions: { dim: "overworld", rx: 0, rz: 0 },
+  map_viewers: { user_id: "00000000-0000-0000-0000-000000000000" },
   bridge_keys: {
     key_id: "x",
     server_id: "00000000-0000-0000-0000-000000000000",

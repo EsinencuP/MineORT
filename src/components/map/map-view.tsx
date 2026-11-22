@@ -12,7 +12,9 @@ import {
   type Camera,
   type Viewport,
 } from "./camera";
+import { PlayerFeed, type FeedState } from "./players";
 import { drawRegion } from "./render/draw";
+import { drawPlayers } from "./render/players";
 
 type Dim = "overworld" | "nether";
 type Ref = { rx: number; rz: number };
@@ -76,6 +78,10 @@ export function MapView() {
     undefined,
   );
 
+  const feed = useRef<PlayerFeed | null>(null);
+  const easing = useRef(false);
+  const [feedState, setFeedState] = useState<FeedState>("connecting");
+
   const [dim, setDim] = useState<Dim>("overworld");
   const [status, setStatus] = useState<Status>("loading");
   const dimRef = useRef<Dim>("overworld");
@@ -107,6 +113,16 @@ export function MapView() {
       ctx.drawImage(region.canvas, sx, sz, side, side);
     }
 
+    if (feed.current)
+      drawPlayers(
+        ctx,
+        cam.current,
+        size.current,
+        feed.current.dots.values(),
+        dimRef.current,
+        feed.current.staff,
+      );
+
     // an aged edge
     const vignette = ctx.createRadialGradient(
       width / 2,
@@ -127,6 +143,19 @@ export function MapView() {
     queued.current = true;
     requestAnimationFrame(paint);
   }, [paint]);
+
+  /** Keeps painting while a dot is still gliding to its new position. */
+  const glide = useCallback(() => {
+    if (easing.current) return;
+    easing.current = true;
+    const step = () => {
+      const moving = feed.current?.ease() ?? false;
+      requestPaint();
+      if (moving) requestAnimationFrame(step);
+      else easing.current = false;
+    };
+    requestAnimationFrame(step);
+  }, [requestPaint]);
 
   /** Fetches the regions near the screen that are missing or out of date. */
   const loadVisible = useCallback(async () => {
@@ -238,6 +267,17 @@ export function MapView() {
       clearInterval(timer);
     };
   }, [dim, refresh]);
+
+  // live players: a guest gets none, a signed-in user gets the channels the site opens for them
+  useEffect(() => {
+    const f = new PlayerFeed(setFeedState, glide);
+    feed.current = f;
+    void f.start();
+    return () => {
+      f.stop();
+      feed.current = null;
+    };
+  }, [glide]);
 
   // wheel zoom needs a non-passive listener to keep the page from scrolling
   useEffect(() => {
@@ -420,6 +460,23 @@ export function MapView() {
           С
         </text>
       </svg>
+
+      {feedState === "guest" && (
+        <a
+          href="/api/auth/telegram/start?return_to=/map"
+          className="absolute right-3 bottom-3 rounded-full border border-[#3a3026]/60 bg-[#fbf3dc]/90 px-4 py-1.5 text-sm text-[#3a3026] hover:bg-[#fff8e6]"
+        >
+          Войдите, чтобы видеть игроков
+        </a>
+      )}
+      {feedState === "offline" && (
+        <p
+          role="status"
+          className="pointer-events-none absolute right-3 bottom-3 rounded-full bg-[#fbf3dc]/90 px-4 py-1.5 text-sm text-[#3a3026]"
+        >
+          Игроки сейчас не видны
+        </p>
+      )}
 
       {status === "empty" && (
         <div

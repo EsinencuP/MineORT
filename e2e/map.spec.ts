@@ -58,6 +58,18 @@ test.describe("map with the atlas flag on", () => {
     await expect(canvas).toBeVisible();
   });
 
+  test("a guest gets no live players and is offered a sign-in", async ({
+    page,
+    request,
+  }) => {
+    expect((await request.get("/api/map/realtime-token")).status()).toBe(401);
+    expect((await request.post("/api/map/watch")).status()).toBe(401);
+    await page.goto("/map");
+    await expect(
+      page.getByRole("link", { name: "Войдите, чтобы видеть игроков" }),
+    ).toBeVisible();
+  });
+
   test("the region API refuses malformed requests", async ({ request }) => {
     expect(
       (await request.get("/api/map/regions?dim=moon&r=0:0")).status(),

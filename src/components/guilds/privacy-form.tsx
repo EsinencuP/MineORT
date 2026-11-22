@@ -11,6 +11,7 @@ export function PrivacyForm({
     showGuild: boolean;
     showStats: boolean;
     bio: string;
+    mapVisibility: "all" | "guild";
   };
 }) {
   const box = "size-5 shrink-0 accent-[color:var(--brand-600)]";
@@ -48,6 +49,23 @@ export function PrivacyForm({
           />
           Показывать статистику, когда она появится
         </label>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="map_visibility" className="text-sm font-medium">
+            Кто видит меня на карте
+          </label>
+          <select
+            id="map_visibility"
+            name="map_visibility"
+            defaultValue={value.mapVisibility}
+            className="bg-paper text-ink border-line min-h-11 rounded-xl border px-3 text-sm"
+          >
+            <option value="all">Все участники сообщества</option>
+            <option value="guild">Только моя гильдия</option>
+          </select>
+          <p className="text-ink-muted text-xs">
+            Скрыться совсем нельзя: администрация всегда видит игроков на карте.
+          </p>
+        </div>
         <div className="flex flex-col gap-1.5">
           <label htmlFor="bio" className="text-sm font-medium">
             О себе (до 300 символов)

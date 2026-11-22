@@ -187,6 +187,8 @@ export async function savePrivacyAction(formData: FormData) {
         showGuild: formData.get("show_guild") === "on",
         showStats: formData.get("show_stats") === "on",
         bio: str(formData.get("bio")),
+        mapVisibility:
+          str(formData.get("map_visibility")) === "guild" ? "guild" : "all",
       }),
     { flag: "ff_p1a" },
   );

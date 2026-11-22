@@ -639,7 +639,7 @@ export async function listGuildsAdmin() {
 export async function getPrivacy(userId: string) {
   const { data } = await db()
     .from("privacy_settings")
-    .select("show_first_join, show_guild, show_stats, bio")
+    .select("show_first_join, show_guild, show_stats, bio, map_visibility")
     .eq("user_id", userId)
     .maybeSingle();
   return {
@@ -647,6 +647,8 @@ export async function getPrivacy(userId: string) {
     showGuild: data?.show_guild ?? true,
     showStats: data?.show_stats ?? false,
     bio: (data?.bio as string | undefined) ?? "",
+    mapVisibility: (data?.map_visibility === "guild" ? "guild" : "all") as
+      "all" | "guild",
   };
 }
 
@@ -657,9 +659,12 @@ export async function savePrivacy(
     showGuild: boolean;
     showStats: boolean;
     bio: string;
+    mapVisibility: "all" | "guild";
   },
 ) {
   const bio = p.bio.trim();
+  if (p.mapVisibility !== "all" && p.mapVisibility !== "guild")
+    throw new SocialError("guild_bad_input");
   if (bio.length > 300) throw new SocialError("guild_bad_input");
   const { error } = await db().from("privacy_settings").upsert({
     user_id: userId,
@@ -667,6 +672,7 @@ export async function savePrivacy(
     show_guild: p.showGuild,
     show_stats: p.showStats,
     bio,
+    map_visibility: p.mapVisibility,
     updated_at: new Date().toISOString(),
   });
   if (error) throw new Error(`privacy upsert: ${error.message}`);
