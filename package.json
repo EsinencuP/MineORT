@@ -15,7 +15,8 @@
     "test:e2e": "playwright test",
     "seed:test": "node --env-file=.env.local --experimental-strip-types scripts/seed-test-users.ts",
     "seed:guides": "node --env-file=.env.local --experimental-strip-types scripts/seed-guides.ts",
-    "art": "node --experimental-strip-types scripts/generate-art.ts"
+    "art": "node --experimental-strip-types scripts/generate-art.ts",
+    "seed:map": "node --env-file=.env.local --experimental-strip-types scripts/seed-map-demo.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",

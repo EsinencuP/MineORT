@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createBridgeServer } from "@/lib/bridge/keys";
 import { COLUMNS, encodeChunk, SURFACE } from "@/lib/map/chunk-codec";
 import { rebuildRegion, rebuildRegions } from "@/lib/map/regions";
+import { loadRegions } from "@/lib/map/server";
 import type { Layer } from "@/lib/map/vectorize";
 import { db } from "@/lib/supabase-admin";
 
@@ -129,5 +130,40 @@ describe.skipIf(!enabled)("region rebuild", () => {
     const built = await rebuildRegions([ref(1, 0), ref(1, 0), ref(2, 0)], 1);
     expect(built).toBe(1);
     expect((await stored(2, 0)).dirty).toBe(true);
+  });
+
+  it("serves a dirty region rebuilt on the spot, and unchanged when the viewer is current", async () => {
+    await ingest([chunk(96, 0, 4, true)]); // region 3,0 becomes dirty and is not rebuilt yet
+    expect((await stored(3, 0)).dirty).toBe(true);
+
+    const first = await loadRegions(
+      serverId,
+      "overworld",
+      [{ rx: 3, rz: 0 }],
+      new Map(),
+    );
+    expect(first).toHaveLength(1);
+    expect("layer" in first[0] && first[0].layer.areas.water.rings.length).toBe(
+      1,
+    );
+    expect((await stored(3, 0)).dirty).toBe(false);
+
+    const again = await loadRegions(
+      serverId,
+      "overworld",
+      [{ rx: 3, rz: 0 }],
+      new Map([["3:0", first[0].version]]),
+    );
+    expect(again[0]).toEqual({ rx: 3, rz: 0, version: 4, unchanged: true });
+  });
+
+  it("leaves out a region nobody has explored", async () => {
+    const out = await loadRegions(
+      serverId,
+      "overworld",
+      [{ rx: 50, rz: 50 }],
+      new Map(),
+    );
+    expect(out).toEqual([]);
   });
 });
