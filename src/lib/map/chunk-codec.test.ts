@@ -5,7 +5,6 @@ import {
   COLUMNS,
   decodeChunk,
   encodeChunk,
-  SURFACE,
   type ChunkColumns,
 } from "./chunk-codec";
 
@@ -14,8 +13,7 @@ function sample(): ChunkColumns {
   for (let i = 0; i < COLUMNS; i++) {
     columns.push({
       height: -64 + i, // covers the full usable range of heights including negatives
-      surface: (i % 15) as ChunkColumns["columns"][number]["surface"],
-      biome: i % 3 === 0 ? "minecraft:plains" : "minecraft:river",
+      color: i % 7 === 0 ? 0 : (0xff000000 | (i * 0x010203)) >>> 0,
       waterDepth: i % 256,
     });
   }
@@ -25,35 +23,25 @@ function sample(): ChunkColumns {
 /** Wire bytes assembled by hand from the format description, independent of the encoder. */
 function handBuilt(): Buffer {
   const heights = Buffer.alloc(COLUMNS * 2);
-  const surfaces = Buffer.alloc(COLUMNS);
-  const biomes = Buffer.alloc(COLUMNS);
   const depths = Buffer.alloc(COLUMNS);
+  const colors = Buffer.alloc(COLUMNS * 4);
   for (let i = 0; i < COLUMNS; i++) {
     heights.writeUInt16LE(70 + 64, i * 2); // stored as height + 64
-    surfaces[i] = 4; // grass
-    biomes[i] = 0;
-    depths[i] = 0;
+    colors.writeUInt32LE(0xff7fb238, i * 4); // vanilla grass map colour
   }
-  surfaces[0] = 2; // deep water in the first column
   depths[0] = 7;
-  biomes[0] = 1;
-  const name0 = Buffer.from("minecraft:plains");
-  const name1 = Buffer.from("minecraft:ocean");
+  colors.writeUInt32LE(0xff4040ff, 0); // water in the first column
+  colors.writeUInt32LE(0, 4); // nothing in the second
   return Buffer.concat([
-    Buffer.from([1, 2]), // codec version, palette size
-    Buffer.from([name0.length]),
-    name0,
-    Buffer.from([name1.length]),
-    name1,
+    Buffer.from([CHUNK_CODEC_VERSION]),
     heights,
-    surfaces,
-    biomes,
     depths,
+    colors,
   ]);
 }
 
 describe("chunk codec", () => {
-  it("round-trips all 256 columns including negative heights", () => {
+  it("round-trips all 256 columns including negative heights and empty columns", () => {
     const input = sample();
     expect(decodeChunk(encodeChunk(input))).toEqual(input);
   });
@@ -63,14 +51,13 @@ describe("chunk codec", () => {
     expect(decoded.columns).toHaveLength(COLUMNS);
     expect(decoded.columns[0]).toEqual({
       height: 70,
-      surface: SURFACE.deep_water,
-      biome: "minecraft:ocean",
+      color: 0xff4040ff,
       waterDepth: 7,
     });
+    expect(decoded.columns[1].color).toBe(0);
     expect(decoded.columns[255]).toEqual({
       height: 70,
-      surface: SURFACE.grass,
-      biome: "minecraft:plains",
+      color: 0xff7fb238,
       waterDepth: 0,
     });
   });
@@ -91,18 +78,10 @@ describe("chunk codec", () => {
     ).toThrow(/length/);
   });
 
-  it("rejects a biome index outside the palette", () => {
+  it("rejects a colour that is neither opaque nor zero", () => {
     const bytes = handBuilt();
-    const biomeOffset = bytes.length - COLUMNS * 2; // biome block precedes the depth block
-    bytes[biomeOffset + 5] = 9;
-    expect(() => decodeChunk(deflateSync(bytes))).toThrow(/palette/);
-  });
-
-  it("rejects a surface class outside the known set", () => {
-    const bytes = handBuilt();
-    const surfaceOffset = bytes.length - COLUMNS * 3;
-    bytes[surfaceOffset + 3] = 200;
-    expect(() => decodeChunk(deflateSync(bytes))).toThrow(/surface/);
+    bytes.writeUInt32LE(0x807fb238, bytes.length - 4);
+    expect(() => decodeChunk(deflateSync(bytes))).toThrow(/opaque/);
   });
 
   it("rejects compressed data that expands beyond the limit", () => {

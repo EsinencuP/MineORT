@@ -1,11 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Layer } from "@/lib/map/vectorize";
+import "./atlas.css";
+import {
+  DEFAULT_THEME,
+  THEMES,
+  themeById,
+  themeVars,
+  toolIcon,
+  type AtlasTheme,
+} from "./atlas-theme";
 import {
   clampScale,
   panBy,
   REGION_BLOCKS,
+  screenToWorld,
   visibleRegions,
   worldToScreen,
   zoomAt,
@@ -13,70 +22,84 @@ import {
   type Viewport,
 } from "./camera";
 import { PlayerFeed, type FeedState } from "./players";
-import { drawRegion } from "./render/draw";
 import { drawPlayers } from "./render/players";
 
 type Dim = "overworld" | "nether";
-type Ref = { rx: number; rz: number };
-type Loaded = { version: number; canvas: HTMLCanvasElement };
-type Payload =
-  | { rx: number; rz: number; version: number; unchanged: true }
-  | { rx: number; rz: number; version: number; layer: Layer };
+type Ref = { rx: number; rz: number; version: number };
+type Loaded = { version: number; img: HTMLImageElement; used: number };
 type Status = "loading" | "empty" | "ready" | "error";
+type Overlay = "none" | "dims" | "themes";
 
 const REFRESH_MS = 30_000;
-const PARCHMENT = "#efe3c6";
+const MAX_TILES = 48;
+const THEME_KEY = "mineort.map.theme";
+const DIM_NAMES: Record<Dim, string> = {
+  overworld: "Верхний мир",
+  nether: "Незер",
+};
+/** The scale bar picks the longest of these that fits in its room. */
+const RULE_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
 
-/** A paper texture tile, painted once: speckles and soft stains over parchment. */
-function paperTile(): HTMLCanvasElement {
-  const c = document.createElement("canvas");
-  c.width = c.height = 256;
-  const ctx = c.getContext("2d")!;
-  ctx.fillStyle = PARCHMENT;
-  ctx.fillRect(0, 0, 256, 256);
-  let s = 12345;
-  const rnd = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32;
-  for (let i = 0; i < 9; i++) {
-    const x = rnd() * 256;
-    const y = rnd() * 256;
-    const r = 30 + rnd() * 50;
-    // drawn again one tile over in every direction, so the pattern has no seams
-    for (const dx of [-256, 0, 256]) {
-      for (const dy of [-256, 0, 256]) {
-        const g = ctx.createRadialGradient(
-          x + dx,
-          y + dy,
-          0,
-          x + dx,
-          y + dy,
-          r,
-        );
-        g.addColorStop(0, "rgba(150,110,60,0.07)");
-        g.addColorStop(1, "rgba(150,110,60,0)");
-        ctx.fillStyle = g;
-        ctx.fillRect(x + dx - r, y + dy - r, r * 2, r * 2);
-      }
-    }
-  }
-  for (let i = 0; i < 1400; i++) {
-    ctx.fillStyle = `rgba(110,80,40,${0.03 + rnd() * 0.07})`;
-    ctx.fillRect(rnd() * 256, rnd() * 256, 1 + rnd() * 1.5, 1 + rnd() * 1.5);
-  }
-  return c;
+function Panel({
+  className = "",
+  children,
+  ...rest
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div className={`atlas-panel ${className}`} {...rest}>
+      <i className="atlas-stud tl" />
+      <i className="atlas-stud tr" />
+      <i className="atlas-stud bl" />
+      <i className="atlas-stud br" />
+      {children}
+    </div>
+  );
+}
+
+function ToolButton({
+  theme,
+  icon,
+  label,
+  pressed,
+  onClick,
+}: {
+  theme: AtlasTheme;
+  icon: string;
+  label: string;
+  pressed?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="atlas-btn"
+      aria-label={label}
+      title={label}
+      aria-pressed={pressed}
+      onClick={onClick}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={toolIcon(theme, icon)} alt="" draggable={false} />
+    </button>
+  );
 }
 
 export function MapView() {
   const frame = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
-  const cam = useRef<Camera>({ x: 256, z: 256, scale: 1 });
+  const cam = useRef<Camera>({ x: 256, z: 256, scale: 2 });
   const size = useRef<Viewport>({ width: 800, height: 500 });
-  const loaded = useRef(new Map<string, Loaded>());
+  const tiles = useRef(new Map<string, Loaded>());
+  const pending = useRef(new Set<string>());
   const index = useRef<Ref[]>([]);
-  const paper = useRef<HTMLCanvasElement | null>(null);
+  const bg = useRef<HTMLImageElement | null>(null);
   const queued = useRef(false);
   const fetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  const ruleBar = useRef<HTMLDivElement>(null);
+  const ruleText = useRef<HTMLSpanElement>(null);
+  const coords = useRef<HTMLDivElement>(null);
 
   const feed = useRef<PlayerFeed | null>(null);
   const easing = useRef(false);
@@ -84,7 +107,12 @@ export function MapView() {
 
   const [dim, setDim] = useState<Dim>("overworld");
   const [status, setStatus] = useState<Status>("loading");
+  const [overlay, setOverlay] = useState<Overlay>("none");
+  const [theme, setTheme] = useState<AtlasTheme>(DEFAULT_THEME);
+  const [showPlayers, setShowPlayers] = useState(true);
   const dimRef = useRef<Dim>("overworld");
+  const themeRef = useRef<AtlasTheme>(DEFAULT_THEME);
+  const playersRef = useRef(true);
 
   const paint = useCallback(() => {
     queued.current = false;
@@ -93,49 +121,98 @@ export function MapView() {
     const ctx = el.getContext("2d")!;
     const dpr = window.devicePixelRatio || 1;
     const { width, height } = size.current;
+    const c = cam.current;
+    const t = themeRef.current;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    paper.current ??= paperTile();
-    ctx.fillStyle = ctx.createPattern(paper.current, "repeat")!;
+    ctx.imageSmoothingEnabled = false;
+
+    // unexplored ground is bare parchment, which moves with the map
+    if (bg.current?.complete && bg.current.naturalWidth) {
+      const pattern = ctx.createPattern(bg.current, "repeat")!;
+      pattern.setTransform(
+        new DOMMatrix().translate(-c.x * c.scale, -c.z * c.scale).scale(2),
+      );
+      ctx.fillStyle = pattern;
+    } else {
+      ctx.fillStyle = t.cream;
+    }
     ctx.fillRect(0, 0, width, height);
 
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    for (const { rx, rz } of visibleRegions(cam.current, size.current)) {
-      const region = loaded.current.get(`${dimRef.current}:${rx}:${rz}`);
-      if (!region) continue;
+    const now = Date.now();
+    for (const { rx, rz } of visibleRegions(c, size.current)) {
+      const tile = tiles.current.get(`${dimRef.current}:${rx}:${rz}`);
+      if (!tile) continue;
+      tile.used = now;
       const [sx, sz] = worldToScreen(
-        cam.current,
+        c,
         size.current,
         rx * REGION_BLOCKS,
         rz * REGION_BLOCKS,
       );
-      const side = REGION_BLOCKS * cam.current.scale;
-      ctx.drawImage(region.canvas, sx, sz, side, side);
+      const x0 = Math.floor(sx);
+      const z0 = Math.floor(sz);
+      const side = REGION_BLOCKS * c.scale;
+      // whole-pixel edges, so neighbouring tiles meet without a seam
+      ctx.drawImage(
+        tile.img,
+        x0,
+        z0,
+        Math.floor(sx + side) - x0,
+        Math.floor(sz + side) - z0,
+      );
     }
 
-    if (feed.current)
+    // a faint chunk grid once the blocks are big enough to count
+    if (c.scale >= 3) {
+      ctx.fillStyle = `${t.ink}${c.scale >= 6 ? "22" : "16"}`;
+      const [wx0, wz0] = screenToWorld(c, size.current, 0, 0);
+      const [wx1, wz1] = screenToWorld(c, size.current, width, height);
+      for (let bx = Math.floor(wx0 / 16) * 16; bx < wx1; bx += 16) {
+        const px = Math.round(worldToScreen(c, size.current, bx, 0)[0]);
+        ctx.fillRect(px, 0, 1, height);
+      }
+      for (let bz = Math.floor(wz0 / 16) * 16; bz < wz1; bz += 16) {
+        const pz = Math.round(worldToScreen(c, size.current, 0, bz)[1]);
+        ctx.fillRect(0, pz, width, 1);
+      }
+    }
+
+    if (feed.current && playersRef.current)
       drawPlayers(
         ctx,
-        cam.current,
+        c,
         size.current,
         feed.current.dots.values(),
         dimRef.current,
         feed.current.staff,
+        {
+          ink: t.ink,
+          cream: t.cream,
+          family: getComputedStyle(el).fontFamily,
+        },
       );
 
-    // an aged edge
     const vignette = ctx.createRadialGradient(
       width / 2,
       height / 2,
-      Math.min(width, height) * 0.45,
+      Math.min(width, height) * 0.5,
       width / 2,
       height / 2,
-      Math.max(width, height) * 0.75,
+      Math.max(width, height) * 0.8,
     );
-    vignette.addColorStop(0, "rgba(120,86,44,0)");
-    vignette.addColorStop(1, "rgba(120,86,44,0.22)");
+    vignette.addColorStop(0, `${t.vignette}00`);
+    vignette.addColorStop(1, `${t.vignette}55`);
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, width, height);
+
+    // scale bar: the longest round distance that fits in 150 pixels
+    const blocks =
+      [...RULE_STEPS].reverse().find((s) => s * c.scale <= 150) ??
+      RULE_STEPS[0];
+    if (ruleBar.current) ruleBar.current.style.width = `${blocks * c.scale}px`;
+    if (ruleText.current) ruleText.current.textContent = `${blocks} бл.`;
+    if (coords.current)
+      coords.current.hidden = !feed.current?.staff || !coords.current.textContent;
   }, []);
 
   const requestPaint = useCallback(() => {
@@ -157,44 +234,66 @@ export function MapView() {
     requestAnimationFrame(step);
   }, [requestPaint]);
 
-  /** Fetches the regions near the screen that are missing or out of date. */
-  const loadVisible = useCallback(async () => {
+  /** Fetches the tiles near the screen that are missing or out of date. */
+  const loadVisible = useCallback(() => {
     const d = dimRef.current;
-    const built = new Set(index.current.map((r) => `${r.rx}:${r.rz}`));
-    const want = visibleRegions(cam.current, size.current, 320).filter((r) =>
-      built.has(`${r.rx}:${r.rz}`),
-    );
-    for (let i = 0; i < want.length; i += 9) {
-      const part = want.slice(i, i + 9);
-      const known = part
-        .map((r) => [r, loaded.current.get(`${d}:${r.rx}:${r.rz}`)] as const)
-        .filter(([, l]) => l)
-        .map(([r, l]) => `${r.rx}:${r.rz}:${l!.version}`);
-      const q = new URLSearchParams({
-        dim: d,
-        r: part.map((r) => `${r.rx}:${r.rz}`).join(","),
-      });
-      if (known.length) q.set("known", known.join(","));
-      const res = await fetch(`/api/map/regions?${q}`);
-      if (!res.ok) throw new Error(`regions ${res.status}`);
-      const { regions } = (await res.json()) as { regions: Payload[] };
-      for (const p of regions) {
-        if ("unchanged" in p) continue;
-        loaded.current.set(`${d}:${p.rx}:${p.rz}`, {
-          version: p.version,
-          canvas: drawRegion(p.layer),
+    const byKey = new Map(index.current.map((r) => [`${r.rx}:${r.rz}`, r]));
+    for (const { rx, rz } of visibleRegions(cam.current, size.current, 320)) {
+      const region = byKey.get(`${rx}:${rz}`);
+      if (!region) continue;
+      const key = `${d}:${rx}:${rz}`;
+      const loaded = tiles.current.get(key);
+      const wanted = `${key}:${region.version}`;
+      if (loaded?.version === region.version || pending.current.has(wanted))
+        continue;
+      pending.current.add(wanted);
+      const img = new Image();
+      img.onload = () => {
+        pending.current.delete(wanted);
+        tiles.current.set(key, {
+          version: region.version,
+          img,
+          used: Date.now(),
         });
-      }
-      requestPaint();
+        if (tiles.current.size > MAX_TILES) {
+          const oldest = [...tiles.current.entries()].sort(
+            (a, b) => a[1].used - b[1].used,
+          )[0];
+          tiles.current.delete(oldest[0]);
+        }
+        requestPaint();
+      };
+      img.onerror = () => pending.current.delete(wanted);
+      img.src = `/api/map/tile?dim=${d}&rx=${rx}&rz=${rz}&v=${region.version}`;
     }
   }, [requestPaint]);
 
+  /** Puts the whole explored world on the screen. */
+  const fit = useCallback(() => {
+    if (index.current.length === 0) return;
+    const xs = index.current.map((r) => r.rx);
+    const zs = index.current.map((r) => r.rz);
+    const x0 = Math.min(...xs);
+    const x1 = Math.max(...xs) + 1;
+    const z0 = Math.min(...zs);
+    const z1 = Math.max(...zs) + 1;
+    const span = Math.max(
+      ((x1 - x0) * REGION_BLOCKS) / size.current.width,
+      ((z1 - z0) * REGION_BLOCKS) / size.current.height,
+    );
+    cam.current = {
+      x: ((x0 + x1) / 2) * REGION_BLOCKS,
+      z: ((z0 + z1) / 2) * REGION_BLOCKS,
+      scale: clampScale(Math.min(2, 0.9 / span)),
+    };
+    loadVisible();
+    requestPaint();
+  }, [loadVisible, requestPaint]);
+
   const refresh = useCallback(
-    async (fit: boolean) => {
+    async (first: boolean) => {
       try {
-        const res = await fetch(
-          `/api/map/regions?dim=${dimRef.current}&index=1`,
-        );
+        const res = await fetch(`/api/map/regions?dim=${dimRef.current}`);
         if (!res.ok) throw new Error(`index ${res.status}`);
         index.current = ((await res.json()) as { regions: Ref[] }).regions;
         if (index.current.length === 0) {
@@ -202,38 +301,19 @@ export function MapView() {
           requestPaint();
           return;
         }
-        if (fit) {
-          const xs = index.current.map((r) => r.rx);
-          const zs = index.current.map((r) => r.rz);
-          const x0 = Math.min(...xs);
-          const x1 = Math.max(...xs) + 1;
-          const z0 = Math.min(...zs);
-          const z1 = Math.max(...zs) + 1;
-          const span = Math.max(
-            ((x1 - x0) * REGION_BLOCKS) / size.current.width,
-            ((z1 - z0) * REGION_BLOCKS) / size.current.height,
-          );
-          cam.current = {
-            x: ((x0 + x1) / 2) * REGION_BLOCKS,
-            z: ((z0 + z1) / 2) * REGION_BLOCKS,
-            scale: clampScale(Math.min(1.5, 1 / span)),
-          };
-        }
         setStatus("ready");
-        await loadVisible();
+        if (first) fit();
+        else loadVisible();
       } catch {
         setStatus("error");
       }
     },
-    [loadVisible, requestPaint],
+    [fit, loadVisible, requestPaint],
   );
 
   const scheduleLoad = useCallback(() => {
     clearTimeout(fetchTimer.current);
-    fetchTimer.current = setTimeout(
-      () => void loadVisible().catch(() => {}),
-      150,
-    );
+    fetchTimer.current = setTimeout(loadVisible, 120);
   }, [loadVisible]);
 
   // size the canvas to its frame
@@ -268,6 +348,30 @@ export function MapView() {
     };
   }, [dim, refresh]);
 
+  // the saved design, read after the first paint so the server and the browser agree on the markup
+  useEffect(() => {
+    const read = setTimeout(() => {
+      try {
+        setTheme(themeById(localStorage.getItem(THEME_KEY)));
+      } catch {
+        /* storage can be blocked; the default design stays */
+      }
+    }, 0);
+    return () => clearTimeout(read);
+  }, []);
+
+  // the parchment of the chosen design is the ground of the canvas
+  useEffect(() => {
+    themeRef.current = theme;
+    const img = new Image();
+    img.onload = () => {
+      bg.current = img;
+      requestPaint();
+    };
+    img.src = theme.panel;
+    requestPaint();
+  }, [theme, requestPaint]);
+
   // live players: a guest gets none, a signed-in user gets the channels the site opens for them
   useEffect(() => {
     const f = new PlayerFeed(setFeedState, glide);
@@ -291,7 +395,7 @@ export function MapView() {
         size.current,
         e.clientX - r.left,
         e.clientY - r.top,
-        Math.exp(-e.deltaY * 0.0015),
+        e.deltaY < 0 ? 1.25 : 0.8,
       );
       requestPaint();
       scheduleLoad();
@@ -309,6 +413,17 @@ export function MapView() {
     pinch.current = 0;
   };
   const onPointerMove = (e: React.PointerEvent) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    if (coords.current && feed.current?.staff) {
+      const [wx, wz] = screenToWorld(
+        cam.current,
+        size.current,
+        e.clientX - r.left,
+        e.clientY - r.top,
+      );
+      coords.current.textContent = `X ${Math.round(wx)}  Z ${Math.round(wz)}`;
+      coords.current.hidden = false;
+    }
     const prev = pointers.current.get(e.pointerId);
     if (!prev) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -318,7 +433,6 @@ export function MapView() {
     } else if (all.length === 2) {
       const d = Math.hypot(all[0].x - all[1].x, all[0].y - all[1].y);
       if (pinch.current) {
-        const r = e.currentTarget.getBoundingClientRect();
         cam.current = zoomAt(
           cam.current,
           size.current,
@@ -359,10 +473,10 @@ export function MapView() {
     if (keys[e.key]) {
       cam.current = panBy(cam.current, ...keys[e.key]);
     } else if (e.key === "+" || e.key === "=") {
-      zoomBy(1.25);
+      zoomBy(1.5);
       return;
     } else if (e.key === "-") {
-      zoomBy(0.8);
+      zoomBy(1 / 1.5);
       return;
     } else return;
     e.preventDefault();
@@ -370,20 +484,30 @@ export function MapView() {
     scheduleLoad();
   };
 
-  const tool =
-    "inline-flex size-10 items-center justify-center rounded-full border border-[#3a3026]/60 bg-[#fbf3dc]/90 text-lg font-semibold text-[#3a3026] shadow-sm hover:bg-[#fff8e6] focus-visible:outline-2";
+  const chooseTheme = (t: AtlasTheme) => {
+    setTheme(t);
+    try {
+      localStorage.setItem(THEME_KEY, t.id);
+    } catch {
+      /* the choice then lasts until the page is closed */
+    }
+  };
+  const toggleOverlay = (o: Overlay) =>
+    setOverlay((cur) => (cur === o ? "none" : o));
 
   return (
     <div
       ref={frame}
       tabIndex={0}
       onKeyDown={onKeyDown}
-      className="relative h-[72dvh] min-h-[420px] touch-none overflow-hidden rounded-(--radius-card) border-4 border-double border-[#3a3026] bg-[#efe3c6]"
+      style={themeVars(theme)}
+      data-ornate={theme.ornate}
+      className="atlas relative h-[72dvh] min-h-[440px] touch-none overflow-hidden border-2 border-(--ink)"
     >
       <canvas
         ref={canvas}
         role="img"
-        aria-label="Рисованная карта мира. Перетаскивайте, чтобы двигать, колесо мыши или кнопки плюс и минус, чтобы менять масштаб."
+        aria-label="Карта мира. Перетаскивайте, чтобы двигать, колесо мыши или кнопки плюс и минус, чтобы менять масштаб."
         className="absolute inset-0 size-full cursor-grab active:cursor-grabbing"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -391,99 +515,147 @@ export function MapView() {
         onPointerCancel={onPointerUp}
       />
 
-      <div className="absolute top-3 right-3 flex flex-col gap-2">
-        <button
-          type="button"
-          className={tool}
-          aria-label="Приблизить"
-          onClick={() => zoomBy(1.4)}
-        >
-          +
-        </button>
-        <button
-          type="button"
-          className={tool}
-          aria-label="Отдалить"
-          onClick={() => zoomBy(1 / 1.4)}
-        >
-          −
-        </button>
-      </div>
+      <Panel className="atlas-plaque absolute top-3 left-1/2 -translate-x-1/2">
+        Мир MineOrt &nbsp;·&nbsp; {DIM_NAMES[dim]}
+      </Panel>
 
-      <div
-        className="absolute top-3 left-3 flex gap-2"
-        role="group"
-        aria-label="Измерение"
+      <Panel
+        className="absolute top-3 left-3 flex flex-col gap-1.5 p-1.5"
+        role="toolbar"
+        aria-label="Инструменты карты"
+        aria-orientation="vertical"
       >
-        {(["overworld", "nether"] as const).map((d) => (
-          <button
-            key={d}
-            type="button"
-            aria-pressed={dim === d}
-            onClick={() => {
-              setStatus("loading");
-              setDim(d);
-            }}
-            className={`rounded-full border border-[#3a3026]/60 px-4 py-1.5 text-sm font-semibold ${
-              dim === d
-                ? "bg-[#3a3026] text-[#fbf3dc]"
-                : "bg-[#fbf3dc]/90 text-[#3a3026]"
-            }`}
-          >
-            {d === "overworld" ? "Верхний мир" : "Незер"}
-          </button>
-        ))}
-      </div>
-
-      <svg
-        aria-hidden="true"
-        viewBox="-50 -50 100 100"
-        className="pointer-events-none absolute bottom-3 left-3 size-20 opacity-80"
-      >
-        <circle r="30" fill="none" stroke="#3a3026" strokeWidth="1" />
-        <circle r="22" fill="none" stroke="#3a3026" strokeWidth="0.5" />
-        <path
-          d="M0 -44 L7 -7 L44 0 L7 7 L0 44 L-7 7 L-44 0 L-7 -7 Z"
-          fill="#efe3c6"
-          stroke="#3a3026"
-          strokeWidth="1.2"
+        <ToolButton
+          theme={theme}
+          icon="map"
+          label="Показать весь мир"
+          onClick={fit}
         />
-        <path d="M0 -44 L7 -7 L0 0 Z" fill="#3a3026" />
-        <path d="M0 44 L-7 7 L0 0 Z" fill="#3a3026" />
-        <text
-          y="-47"
-          textAnchor="middle"
-          fontSize="12"
-          fontWeight="700"
-          fill="#3a3026"
+        <ToolButton
+          theme={theme}
+          icon={showPlayers ? "eye" : "eye_off"}
+          label={showPlayers ? "Скрыть игроков" : "Показать игроков"}
+          pressed={!showPlayers}
+          onClick={() => {
+            playersRef.current = !showPlayers;
+            setShowPlayers(!showPlayers);
+            requestPaint();
+          }}
+        />
+        <ToolButton
+          theme={theme}
+          icon="zoom_in"
+          label="Приблизить"
+          onClick={() => zoomBy(1.5)}
+        />
+        <ToolButton
+          theme={theme}
+          icon="zoom_out"
+          label="Отдалить"
+          onClick={() => zoomBy(1 / 1.5)}
+        />
+        <ToolButton
+          theme={theme}
+          icon="globe"
+          label="Измерение"
+          pressed={overlay === "dims"}
+          onClick={() => toggleOverlay("dims")}
+        />
+        <ToolButton
+          theme={theme}
+          icon="gear"
+          label="Оформление"
+          pressed={overlay === "themes"}
+          onClick={() => toggleOverlay("themes")}
+        />
+      </Panel>
+
+      {overlay === "dims" && (
+        <Panel
+          className="absolute top-3 left-[72px] flex flex-col gap-1.5 p-2"
+          role="group"
+          aria-label="Измерение"
         >
-          С
-        </text>
-      </svg>
+          {(["overworld", "nether"] as const).map((d) => (
+            <button
+              key={d}
+              type="button"
+              className="atlas-label-btn"
+              aria-pressed={dim === d}
+              onClick={() => {
+                if (d !== dim) {
+                  setStatus("loading");
+                  setDim(d);
+                }
+                setOverlay("none");
+              }}
+            >
+              {DIM_NAMES[d]}
+            </button>
+          ))}
+        </Panel>
+      )}
+
+      {overlay === "themes" && (
+        <Panel
+          className="absolute top-3 left-[72px] grid grid-cols-2 gap-1.5 p-2"
+          role="group"
+          aria-label="Оформление"
+        >
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className="atlas-label-btn"
+              aria-pressed={theme.id === t.id}
+              onClick={() => chooseTheme(t)}
+            >
+              {t.name}
+            </button>
+          ))}
+        </Panel>
+      )}
+
+      <Panel className="absolute bottom-3 left-3 flex flex-col gap-1 px-2.5 py-1.5 text-xs">
+        <div ref={coords} hidden aria-live="off" />
+        <div className="flex items-center gap-2">
+          <div ref={ruleBar} className="atlas-rule" style={{ width: 100 }} />
+          <span ref={ruleText}>50 бл.</span>
+        </div>
+      </Panel>
+
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/map/ui/compass.png"
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        className="pointer-events-none absolute right-3 bottom-3 size-16 opacity-90"
+      />
 
       {feedState === "guest" && (
         <a
           href="/api/auth/telegram/start?return_to=/map"
-          className="absolute right-3 bottom-3 rounded-full border border-[#3a3026]/60 bg-[#fbf3dc]/90 px-4 py-1.5 text-sm text-[#3a3026] hover:bg-[#fff8e6]"
+          className="atlas-label-btn absolute right-24 bottom-4"
         >
           Войдите, чтобы видеть игроков
         </a>
       )}
       {feedState === "nonmember" && (
-        <p
+        <Panel
           role="status"
-          className="pointer-events-none absolute right-3 bottom-3 rounded-full bg-[#fbf3dc]/90 px-4 py-1.5 text-sm text-[#3a3026]"
+          className="atlas-status pointer-events-none absolute right-24 bottom-4"
         >
           Игроков видят участники сообщества
-        </p>
+        </Panel>
       )}
       {feedState === "offline" && (
-        <p
+        <Panel
           role="status"
-          className="pointer-events-none absolute right-3 bottom-3 rounded-full bg-[#fbf3dc]/90 px-4 py-1.5 text-sm text-[#3a3026]"
+          className="atlas-status pointer-events-none absolute right-24 bottom-4"
         >
           Игроки сейчас не видны
-        </p>
+        </Panel>
       )}
 
       {status === "empty" && (
@@ -491,34 +663,34 @@ export function MapView() {
           role="status"
           className="pointer-events-none absolute inset-0 grid place-items-center p-6 text-center"
         >
-          <p className="max-w-sm rounded-lg bg-[#fbf3dc]/90 p-4 text-[#3a3026]">
+          <Panel className="max-w-sm p-4 text-sm">
             Карта откроется, когда игроки начнут исследовать мир.
-          </p>
+          </Panel>
         </div>
       )}
       {status === "loading" && (
-        <p
+        <Panel
           role="status"
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-[#fbf3dc]/90 px-4 py-1 text-sm text-[#3a3026]"
+          className="atlas-status absolute bottom-4 left-1/2 -translate-x-1/2"
         >
           Загрузка карты…
-        </p>
+        </Panel>
       )}
       {status === "error" && (
         <div
           role="alert"
           className="pointer-events-none absolute inset-0 grid place-items-center p-6 text-center"
         >
-          <div className="pointer-events-auto rounded-lg bg-[#fbf3dc]/95 p-4 text-[#3a3026]">
-            <p className="mb-2">Не удалось загрузить карту.</p>
+          <Panel className="pointer-events-auto p-4 text-sm">
+            <p className="mb-3">Не удалось загрузить карту.</p>
             <button
               type="button"
-              className={tool + " w-auto px-4 text-base"}
+              className="atlas-label-btn"
               onClick={() => void refresh(true)}
             >
               Повторить
             </button>
-          </div>
+          </Panel>
         </div>
       )}
     </div>

@@ -11,6 +11,21 @@ export default async function Page() {
     <div className="mx-auto w-full max-w-6xl px-4 py-6">
       <h1 className="mb-4 text-2xl font-bold">Карта</h1>
       <MapView />
+      <p className="mt-3 text-xs text-ink-muted">
+        Вид и способ рисования карты взяты из мода{" "}
+        <a
+          href="https://github.com/erkinpaw/atlasmap"
+          className="underline"
+          rel="noreferrer"
+        >
+          AtlasMap
+        </a>{" "}
+        (автор erkinpaw, лицензия MIT,{" "}
+        <a href="/map/ATLASMAP-LICENSE.txt" className="underline">
+          текст лицензии
+        </a>
+        ).
+      </p>
     </div>
   );
 }

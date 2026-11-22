@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { canonicalRequest, hmacHex } from "@/lib/bridge/auth";
 import { createBridgeServer, issueBridgeKey } from "@/lib/bridge/keys";
-import { COLUMNS, encodeChunk, SURFACE } from "@/lib/map/chunk-codec";
+import { COLUMNS, encodeChunk } from "@/lib/map/chunk-codec";
 import { db } from "@/lib/supabase-admin";
 import { POST as chunksRoute } from "@/app/api/bridge/v1/map/chunks/route";
 
@@ -46,12 +46,11 @@ function chunk(cx: number, cz: number, version: number, height = 70) {
   const data = encodeChunk({
     columns: Array.from({ length: COLUMNS }, () => ({
       height,
-      surface: SURFACE.grass,
-      biome: "minecraft:plains",
+      color: 0xff7fb238,
       waterDepth: 0,
     })),
   }).toString("base64");
-  return { dim: "overworld", cx, cz, codec: 1, version, data };
+  return { dim: "overworld", cx, cz, codec: 2, version, data };
 }
 
 const stored = async (cx: number, cz: number) => {
@@ -68,13 +67,13 @@ const stored = async (cx: number, cz: number) => {
 const region = async (rx: number, rz: number) => {
   const { data } = await db()
     .from("map_regions")
-    .select("dirty, layer")
+    .select("dirty, tile")
     .eq("server_id", serverId)
     .eq("dim", "overworld")
     .eq("rx", rx)
     .eq("rz", rz)
     .maybeSingle();
-  return data as { dirty: boolean; layer: unknown } | null;
+  return data as { dirty: boolean; tile: unknown } | null;
 };
 
 describe.skipIf(!enabled)("map chunk ingest", () => {
@@ -97,14 +96,14 @@ describe.skipIf(!enabled)("map chunk ingest", () => {
     expect(r.body.results.every((x: any) => x.result === "stored")).toBe(true);
     expect(await stored(7, 0)).toBe(10);
     expect(await region(0, 0)).toMatchObject({ dirty: false });
-    expect((await region(0, 0))!.layer).not.toBeNull();
+    expect((await region(0, 0))!.tile).not.toBeNull();
     expect(await region(1, 0)).toMatchObject({ dirty: false }); // chunks 32..49 fall into region 1
   });
 
   it("puts negative chunk coordinates into the region below zero", async () => {
     await send({ chunks: [chunk(-1, -1, 10)] });
     expect(await region(-1, -1)).toMatchObject({ dirty: false });
-    expect((await region(-1, -1))!.layer).not.toBeNull();
+    expect((await region(-1, -1))!.tile).not.toBeNull();
   });
 
   it("reports a repeated batch as stale and leaves the built region alone", async () => {

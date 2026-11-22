@@ -1,9 +1,10 @@
+import { inflateSync } from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createBridgeServer } from "@/lib/bridge/keys";
-import { COLUMNS, encodeChunk, SURFACE } from "@/lib/map/chunk-codec";
+import { COLUMNS, encodeChunk } from "@/lib/map/chunk-codec";
 import { rebuildRegion, rebuildRegions } from "@/lib/map/regions";
-import { loadRegions } from "@/lib/map/server";
-import type { Layer } from "@/lib/map/vectorize";
+import { listRegions, loadTile } from "@/lib/map/server";
+import { TILE_SIZE } from "@/lib/map/tile/render";
 import { db } from "@/lib/supabase-admin";
 
 // Integration tests against a real Supabase project.
@@ -25,12 +26,11 @@ function chunk(cx: number, cz: number, version: number, water: boolean) {
   const data = encodeChunk({
     columns: Array.from({ length: COLUMNS }, () => ({
       height: 64,
-      surface: water ? SURFACE.water : SURFACE.grass,
-      biome: "minecraft:plains",
-      waterDepth: water ? 2 : 0,
+      color: water ? 0xff4040ff : 0xff7fb238,
+      waterDepth: water ? 14 : 0,
     })),
   }).toString("base64");
-  return { dim: "overworld", cx, cz, codec: 1, version, data };
+  return { dim: "overworld", cx, cz, codec: 2, version, data };
 }
 
 async function ingest(chunks: ReturnType<typeof chunk>[]) {
@@ -44,14 +44,27 @@ async function ingest(chunks: ReturnType<typeof chunk>[]) {
 const stored = async (rx: number, rz: number) => {
   const { data } = await db()
     .from("map_regions")
-    .select("layer, dirty, built_version")
+    .select("tile, dirty, built_version")
     .eq("server_id", serverId)
     .eq("dim", "overworld")
     .eq("rx", rx)
     .eq("rz", rz)
     .single();
-  return data as { layer: Layer | null; dirty: boolean; built_version: number };
+  return data as { tile: string | null; dirty: boolean; built_version: number };
 };
+
+/** RGBA of one pixel of a PNG made by the tile encoder (filter 0 on every row). */
+function pixel(png: Buffer, x: number, y: number) {
+  const at = png.indexOf("IDAT");
+  const raw = inflateSync(png.subarray(at + 4, at + 4 + png.readUInt32BE(at - 4)));
+  const o = y * (TILE_SIZE * 4 + 1) + 1 + x * 4;
+  return [...raw.subarray(o, o + 4)];
+}
+const tileOf = async (rx: number, rz: number) => {
+  const row = await stored(rx, rz);
+  return Buffer.from(row.tile!.slice(2), "hex");
+};
+const isWater = (p: number[]) => p[2] > p[0]; // blue-grey, unlike the sepia land
 
 describe.skipIf(!enabled)("region rebuild", () => {
   beforeAll(async () => {
@@ -63,7 +76,7 @@ describe.skipIf(!enabled)("region rebuild", () => {
     await db().from("bridge_servers").delete().eq("id", serverId);
   });
 
-  it("builds the layer of a dirty region from its stored chunks", async () => {
+  it("paints the tile of a dirty region from its stored chunks", async () => {
     // a 3x3 block of water chunks inside an otherwise land region
     const chunks = [];
     for (let cz = 10; cz < 13; cz++) {
@@ -76,10 +89,10 @@ describe.skipIf(!enabled)("region rebuild", () => {
     const row = await stored(0, 0);
     expect(row.dirty).toBe(false);
     expect(row.built_version).toBe(7);
-    expect(row.layer!.areas.water.rings).toHaveLength(1);
-    const xs = row.layer!.areas.water.rings[0].filter((_, i) => i % 2 === 0);
-    expect(Math.min(...xs)).toBeCloseTo(160, 0); // chunk 10 starts at block 160
-    expect(Math.max(...xs)).toBeCloseTo(208, 0); // chunk 12 ends at block 208
+    const png = await tileOf(0, 0);
+    expect(isWater(pixel(png, 168, 168))).toBe(true); // inside chunk 10,10
+    expect(isWater(pixel(png, 330, 330))).toBe(false); // the grass chunk 20,20
+    expect(pixel(png, 5, 5)[3]).toBe(0); // unexplored stays transparent
   });
 
   it("does nothing for a region that is not dirty", async () => {
@@ -91,12 +104,13 @@ describe.skipIf(!enabled)("region rebuild", () => {
     expect((await stored(0, 0)).dirty).toBe(true);
 
     expect(await rebuildRegion(ref(0, 0))).toBe(true);
-    const row = await stored(0, 0);
-    expect(row.built_version).toBe(9);
-    expect(row.layer!.areas.water.rings).toHaveLength(2); // a ring with a hole
+    expect((await stored(0, 0)).built_version).toBe(9);
+    const png = await tileOf(0, 0);
+    expect(isWater(pixel(png, 184, 184))).toBe(false); // the middle chunk is land now
+    expect(isWater(pixel(png, 168, 168))).toBe(true);
   });
 
-  it("refuses to store a layer built before a newer chunk arrived", async () => {
+  it("refuses to store a tile built before a newer chunk arrived", async () => {
     await ingest([chunk(0, 0, 1, true)]);
     const { data: read } = await db()
       .from("map_regions")
@@ -107,20 +121,19 @@ describe.skipIf(!enabled)("region rebuild", () => {
       .single(); // the state a build would have read
     await ingest([chunk(0, 0, 2, false)]); // a chunk lands while that build runs
 
-    const { data: accepted, error } = await db().rpc("map_store_layer", {
+    const { data: accepted, error } = await db().rpc("map_store_tile", {
       p_server_id: serverId,
       p_dim: "overworld",
       p_rx: 0,
       p_rz: 0,
       p_dirty_at: read!.dirty_at,
-      p_layer: { stale: true },
+      p_tile: Buffer.from("stale").toString("base64"),
       p_version: 1,
     });
     expect(error).toBeNull();
     expect(accepted).toBe(false);
     const row = await stored(0, 0);
     expect(row.dirty).toBe(true);
-    expect(row.layer).not.toEqual({ stale: true });
     expect(await rebuildRegion(ref(0, 0))).toBe(true); // the next build catches up
     expect((await stored(0, 0)).dirty).toBe(false);
   });
@@ -132,53 +145,32 @@ describe.skipIf(!enabled)("region rebuild", () => {
     expect((await stored(2, 0)).dirty).toBe(true);
   });
 
-  it("serves a dirty region rebuilt on the spot, and unchanged when the viewer is current", async () => {
+  it("serves a dirty region rebuilt on the spot", async () => {
     await ingest([chunk(96, 0, 4, true)]); // region 3,0 becomes dirty and is not rebuilt yet
     expect((await stored(3, 0)).dirty).toBe(true);
 
-    const first = await loadRegions(
-      serverId,
-      "overworld",
-      [{ rx: 3, rz: 0 }],
-      new Map(),
-    );
-    expect(first).toHaveLength(1);
-    expect("layer" in first[0] && first[0].layer.areas.water.rings.length).toBe(
-      1,
-    );
+    const tile = await loadTile(serverId, "overworld", 3, 0);
+    expect(tile?.version).toBe(4);
+    expect(tile!.png.subarray(1, 4).toString()).toBe("PNG");
     expect((await stored(3, 0)).dirty).toBe(false);
-
-    const again = await loadRegions(
-      serverId,
-      "overworld",
-      [{ rx: 3, rz: 0 }],
-      new Map([["3:0", first[0].version]]),
-    );
-    expect(again[0]).toEqual({ rx: 3, rz: 0, version: 4, unchanged: true });
   });
 
-  it("leaves out a region nobody has explored", async () => {
-    const out = await loadRegions(
-      serverId,
-      "overworld",
-      [{ rx: 50, rz: 50 }],
-      new Map(),
-    );
-    expect(out).toEqual([]);
+  it("answers null for a region nobody has explored", async () => {
+    expect(await loadTile(serverId, "overworld", 50, 50)).toBeNull();
+  });
+
+  it("lists the explored regions with the version of their tile", async () => {
+    const list = await listRegions(serverId, "overworld");
+    expect(list).toContainEqual({ rx: 3, rz: 0, version: 4 });
   });
 
   it("serves a recently changed region as it was instead of rebuilding it", async () => {
     await ingest([chunk(160, 0, 4, true)]); // region 5,0 appears
-    await loadRegions(serverId, "overworld", [{ rx: 5, rz: 0 }], new Map()); // builds it
+    await loadTile(serverId, "overworld", 5, 0); // builds it
     await ingest([chunk(160, 0, 5, false)]); // changes it: dirty, but only just
 
-    const out = await loadRegions(
-      serverId,
-      "overworld",
-      [{ rx: 5, rz: 0 }],
-      new Map(),
-    );
-    expect(out[0].version).toBe(4); // the old layer
+    const out = await loadTile(serverId, "overworld", 5, 0);
+    expect(out?.version).toBe(4); // the old tile
     expect((await stored(5, 0)).dirty).toBe(true); // and not rebuilt by this request
   });
 
@@ -189,32 +181,8 @@ describe.skipIf(!enabled)("region rebuild", () => {
       .eq("server_id", serverId)
       .eq("rx", 5)
       .eq("rz", 0);
-    const out = await loadRegions(
-      serverId,
-      "overworld",
-      [{ rx: 5, rz: 0 }],
-      new Map(),
-    );
-    expect(out[0].version).toBe(5);
+    const out = await loadTile(serverId, "overworld", 5, 0);
+    expect(out?.version).toBe(5);
     expect((await stored(5, 0)).dirty).toBe(false);
-  });
-
-  it("builds at most two unbuilt regions for one request", async () => {
-    await ingest([
-      chunk(192, 0, 1, true),
-      chunk(224, 0, 1, true),
-      chunk(256, 0, 1, true),
-    ]);
-    const out = await loadRegions(
-      serverId,
-      "overworld",
-      [
-        { rx: 6, rz: 0 },
-        { rx: 7, rz: 0 },
-        { rx: 8, rz: 0 },
-      ],
-      new Map(),
-    );
-    expect(out).toHaveLength(2);
   });
 });

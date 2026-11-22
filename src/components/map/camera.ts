@@ -2,8 +2,8 @@
 export type Camera = { x: number; z: number; scale: number };
 export type Viewport = { width: number; height: number };
 
-export const MIN_SCALE = 0.2;
-export const MAX_SCALE = 4;
+export const MIN_SCALE = 0.25;
+export const MAX_SCALE = 16;
 export const REGION_BLOCKS = 512;
 
 export const clampScale = (s: number) =>

@@ -6,7 +6,6 @@ import { createClient } from "@supabase/supabase-js";
 import {
   COLUMNS,
   encodeChunk,
-  SURFACE,
   type Column,
 } from "../src/lib/map/chunk-codec.ts";
 
@@ -108,11 +107,22 @@ const fbm = (x: number, z: number) =>
   noise(x / 25, z / 25) * 0.3 +
   noise(x / 11, z / 11) * 0.15;
 
+// vanilla map colours (MapColor), as the plugin reads them from the blocks
+const MAP = {
+  grass: 0xff7fb238,
+  sand: 0xfff7e9a3,
+  stone: 0xff707070,
+  snow: 0xffffffff,
+  dirt: 0xff976d4d,
+  wood: 0xff8f7748,
+  plant: 0xff007c00,
+  water: 0xff4040ff,
+};
+
 // an island around (0, 0) of about 440 blocks across, with a lake, a river, a hill range and a village
 function column(x: number, z: number): Column {
   const d = Math.hypot(x - 20, z + 10) / 230;
   const land = 0.78 - d * 0.95 + (fbm(x, z) - 0.5) * 0.7;
-  const biome = "minecraft:plains";
   const lake = Math.hypot(x + 70, z - 40) < 34 + noise(x / 9, z / 9) * 8;
   const river =
     Math.abs(z - (x * 0.35 + 30 + Math.sin(x / 31) * 14)) < 2.4 &&
@@ -122,13 +132,11 @@ function column(x: number, z: number): Column {
     const deep = land < 0.04;
     return {
       height: deep ? 50 : 61,
-      surface: deep ? SURFACE.deep_water : SURFACE.water,
-      biome,
+      color: MAP.water,
       waterDepth: deep ? 12 : 3,
     };
   }
-  if (lake || river)
-    return { height: 62, surface: SURFACE.water, biome, waterDepth: 2 };
+  if (lake || river) return { height: 62, color: MAP.water, waterDepth: 2 };
   const hill =
     Math.max(0, 1 - Math.hypot(x - 120, z + 90) / 95) * 46 +
     Math.max(0, fbm(x + 400, z) - 0.55) * 60;
@@ -136,26 +144,23 @@ function column(x: number, z: number): Column {
   const village =
     Math.hypot(x - 10, z - 20) < 28 &&
     hash(Math.floor(x / 6), Math.floor(z / 6)) > 0.45;
-  if (village) return { height, surface: SURFACE.built, biome, waterDepth: 0 };
+  if (village) return { height, color: MAP.wood, waterDepth: 0 };
   const track =
     Math.abs(z - 20 - (x - 10) * 0.12 - Math.sin(x / 20) * 3) < 1.2 &&
     x > -150 &&
     x < 150;
-  if (track) return { height, surface: SURFACE.path, biome, waterDepth: 0 };
-  if (land < 0.24)
-    return { height, surface: SURFACE.sand, biome, waterDepth: 0 };
+  if (track) return { height, color: MAP.dirt, waterDepth: 0 };
+  if (land < 0.24) return { height, color: MAP.sand, waterDepth: 0 };
   if (hill > 26)
     return {
       height,
-      surface: hill > 40 ? SURFACE.snow : SURFACE.stone,
-      biome,
+      color: hill > 40 ? MAP.snow : MAP.stone,
       waterDepth: 0,
     };
   const forest = fbm(x + 900, z - 300) > 0.52;
   return {
     height,
-    surface: forest ? SURFACE.forest : SURFACE.grass,
-    biome,
+    color: forest ? MAP.plant : MAP.grass,
     waterDepth: 0,
   };
 }
@@ -183,7 +188,7 @@ for (let cz = -R; cz < R; cz++) {
       dim: "overworld",
       cx,
       cz,
-      codec: 1,
+      codec: 2,
       version: Date.now(),
       data: encodeChunk({ columns }).toString("base64"),
     });

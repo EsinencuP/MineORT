@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   encodeChunk,
-  SURFACE,
   COLUMNS,
   type ChunkColumns,
 } from "./chunk-codec";
@@ -11,8 +10,7 @@ function payload(height = 70): string {
   const chunk: ChunkColumns = {
     columns: Array.from({ length: COLUMNS }, () => ({
       height,
-      surface: SURFACE.grass,
-      biome: "minecraft:plains",
+      color: 0xff7fb238,
       waterDepth: 0,
     })),
   };
@@ -23,7 +21,7 @@ const chunk = (over: Record<string, unknown> = {}) => ({
   dim: "overworld",
   cx: 0,
   cz: 0,
-  codec: 1,
+  codec: 2,
   version: 100,
   data: payload(),
   ...over,
@@ -58,7 +56,7 @@ describe("parseChunkBatch", () => {
   });
 
   it("rejects an unsupported codec version with its own code", () => {
-    const r = parseChunkBatch([chunk({ codec: 2 })]);
+    const r = parseChunkBatch([chunk({ codec: 1 })]);
     expect(r.rejected[0].code).toBe("ERR_CODEC_UNSUPPORTED");
   });
 

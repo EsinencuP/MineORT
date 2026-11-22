@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/supabase-admin";
 import { decodeChunk, type ChunkColumns } from "./chunk-codec";
-import { buildLayer } from "./vectorize";
+import { renderTile } from "./tile/render";
 
 export type Dim = "overworld" | "nether";
 export type RegionRef = { serverId: string; dim: Dim; rx: number; rz: number };
@@ -35,9 +35,9 @@ async function loadChunks(ref: RegionRef) {
 }
 
 /**
- * Rebuilds one dirty region. The new layer is stored only if nothing marked the region dirty again
- * in the meantime, so a chunk that arrives while a build runs keeps the region dirty for the next one.
- * Returns whether a layer was stored.
+ * Rebuilds one dirty region into a PNG tile. The new tile is stored only if nothing marked the
+ * region dirty again in the meantime, so a chunk that arrives while a build runs keeps the region
+ * dirty for the next one. Returns whether a tile was stored.
  */
 export async function rebuildRegion(ref: RegionRef): Promise<boolean> {
   const { data: row, error } = await db()
@@ -52,21 +52,18 @@ export async function rebuildRegion(ref: RegionRef): Promise<boolean> {
   if (!row?.dirty) return false;
 
   const { chunks, newest } = await loadChunks(ref);
-  const layer = buildLayer({ dim: ref.dim, rx: ref.rx, rz: ref.rz, chunks });
+  const tile = renderTile(ref.rx, ref.rz, chunks);
 
-  const { data: stored, error: writeError } = await db().rpc(
-    "map_store_layer",
-    {
-      p_server_id: ref.serverId,
-      p_dim: ref.dim,
-      p_rx: ref.rx,
-      p_rz: ref.rz,
-      p_dirty_at: row.dirty_at,
-      p_layer: layer,
-      p_version: newest,
-    },
-  );
-  if (writeError) throw new Error(`map_store_layer: ${writeError.message}`);
+  const { data: stored, error: writeError } = await db().rpc("map_store_tile", {
+    p_server_id: ref.serverId,
+    p_dim: ref.dim,
+    p_rx: ref.rx,
+    p_rz: ref.rz,
+    p_dirty_at: row.dirty_at,
+    p_tile: tile.toString("base64"),
+    p_version: newest,
+  });
+  if (writeError) throw new Error(`map_store_tile: ${writeError.message}`);
   return stored === true;
 }
 

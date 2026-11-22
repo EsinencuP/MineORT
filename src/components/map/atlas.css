@@ -1,0 +1,153 @@
+/*
+ * Panels, buttons and plaques in the look of the AtlasMap mod by erkinpaw (MIT,
+ * https://github.com/erkinpaw/atlasmap): a parchment sheet with an inked border and gilded corners,
+ * square icon buttons, a gold outline for the selected one. Textures: public/map/ui.
+ */
+@layer components {
+  .atlas {
+    --tex: 512px; /* a 256px texture shown at GUI scale 2 */
+    font-family: var(--font-modula), system-ui, sans-serif;
+    color: var(--ink);
+    image-rendering: pixelated;
+  }
+
+  .atlas img {
+    image-rendering: pixelated;
+  }
+
+  .atlas-panel {
+    position: relative;
+    background: var(--panel) 0 0 / var(--tex);
+    border: 2px solid var(--ink);
+    box-shadow:
+      inset 0 0 0 2px transparent,
+      inset 0 0 0 3px var(--ink-faint),
+      3px 3px 0 rgba(0, 0, 0, 0.35);
+    color: var(--ink);
+  }
+
+  .atlas[data-ornate="false"] .atlas-panel {
+    border: 1px solid var(--ink-faint);
+    box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.25);
+  }
+
+  /* gilded corner studs */
+  .atlas-stud {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    box-sizing: border-box;
+    border: 2px solid var(--ink);
+    background:
+      linear-gradient(var(--gold-light), var(--gold-light)) center / 2px 2px
+        no-repeat,
+      var(--gold);
+    pointer-events: none;
+  }
+  .atlas[data-ornate="false"] .atlas-stud {
+    display: none;
+  }
+  .atlas-stud.tl {
+    top: -6px;
+    left: -6px;
+  }
+  .atlas-stud.tr {
+    top: -6px;
+    right: -6px;
+  }
+  .atlas-stud.bl {
+    bottom: -6px;
+    left: -6px;
+  }
+  .atlas-stud.br {
+    bottom: -6px;
+    right: -6px;
+  }
+
+  /* the title plaque and other short labels */
+  .atlas-plaque {
+    padding: 4px 18px;
+    font-size: 13px;
+    line-height: 1.3;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .atlas-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    cursor: pointer;
+    background: var(--panel) 0 0 / var(--tex);
+    border: 2px solid var(--ink);
+    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
+    color: var(--ink);
+  }
+  .atlas-btn img {
+    width: 32px;
+    height: 32px;
+  }
+  .atlas-btn:hover::after,
+  .atlas-btn:focus-visible::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.16);
+    pointer-events: none;
+  }
+  .atlas-btn:focus-visible {
+    outline: 2px solid var(--gold-light);
+    outline-offset: 1px;
+  }
+  .atlas-btn[aria-pressed="true"] {
+    background-image: var(--panel-dark);
+    border-color: var(--gold);
+    box-shadow:
+      inset 0 0 0 1px var(--gold-light),
+      2px 2px 0 rgba(0, 0, 0, 0.35);
+  }
+
+  /* text button */
+  .atlas-label-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    background: var(--panel-dark) 0 0 / var(--tex);
+    border: 2px solid var(--ink);
+    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
+    color: var(--ink);
+  }
+  .atlas-label-btn:hover {
+    border-color: var(--gold);
+  }
+  .atlas-label-btn[aria-pressed="true"] {
+    border-color: var(--gold);
+    box-shadow:
+      inset 0 0 0 1px var(--gold-light),
+      2px 2px 0 rgba(0, 0, 0, 0.35);
+  }
+  .atlas-label-btn:focus-visible {
+    outline: 2px solid var(--gold-light);
+    outline-offset: 1px;
+  }
+
+  /* the scale bar: a rule with end ticks */
+  .atlas-rule {
+    height: 6px;
+    border: 2px solid var(--ink);
+    border-top: none;
+  }
+
+  .atlas-status {
+    padding: 4px 12px;
+    font-size: 12px;
+  }
+}
