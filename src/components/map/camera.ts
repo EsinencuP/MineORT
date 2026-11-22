@@ -40,8 +40,11 @@ export function zoomAt(
   sx: number,
   sz: number,
   factor: number,
+  /** the zoom limits in screen pixels per block; the map scales them with its GUI size */
+  min = MIN_SCALE,
+  max = MAX_SCALE,
 ): Camera {
-  const scale = clampScale(cam.scale * factor);
+  const scale = Math.min(max, Math.max(min, cam.scale * factor));
   const [wx, wz] = screenToWorld(cam, view, sx, sz);
   return {
     scale,

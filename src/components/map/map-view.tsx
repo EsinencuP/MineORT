@@ -1,5 +1,10 @@
 "use client";
 
+// The full-screen map, laid out and drawn like the map screen of AtlasMap by erkinpaw (MIT,
+// https://github.com/erkinpaw/atlasmap, MapScreen.java and MapView.java). Every size is in the mod's
+// GUI pixels; `g` is one GUI pixel on screen. Copyright (c) 2026 erkinpaw for the ported design.
+
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./atlas.css";
 import {
@@ -11,7 +16,6 @@ import {
   type AtlasTheme,
 } from "./atlas-theme";
 import {
-  clampScale,
   panBy,
   REGION_BLOCKS,
   screenToWorld,
@@ -21,6 +25,21 @@ import {
   type Camera,
   type Viewport,
 } from "./camera";
+import {
+  dashedLine,
+  distanceTo,
+  DRAW_TOOLS,
+  drawLabel,
+  drawStroke,
+  fmtDistance,
+  loadStrokes,
+  PALETTE,
+  RED,
+  saveStrokes,
+  WIDTHS,
+  type DrawTool,
+  type Stroke,
+} from "./drawing";
 import { PlayerFeed, type FeedState } from "./players";
 import { drawPlayers } from "./render/players";
 
@@ -28,25 +47,36 @@ type Dim = "overworld" | "nether";
 type Ref = { rx: number; rz: number; version: number };
 type Loaded = { version: number; img: HTMLImageElement; used: number };
 type Status = "loading" | "empty" | "ready" | "error";
-type Overlay = "none" | "dims" | "themes";
+type Overlay = "none" | "dims" | "settings" | "confirm";
+type Tool = "none" | "ruler" | "draw";
 
+const TB = 20;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 16;
 const REFRESH_MS = 30_000;
 const MAX_TILES = 48;
 const THEME_KEY = "mineort.map.theme";
+const PREFS_KEY = "mineort.map.prefs";
 const DIM_NAMES: Record<Dim, string> = {
   overworld: "Верхний мир",
   nether: "Незер",
 };
-/** The scale bar picks the longest of these that fits in its room. */
-const RULE_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
+const NICE = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
+
+/** Minecraft's GUI scale for this window: 3 on a large screen, 2 on a usual one, 1.5 on a phone. */
+const guiScale = (w: number, h: number) =>
+  w >= 1600 && h >= 900 ? 3 : w >= 640 ? 2 : 1.5;
+
+const px = (n: number) => `${n}px`;
 
 function Panel({
   className = "",
   children,
+  style,
   ...rest
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={`atlas-panel ${className}`} {...rest}>
+    <div className={`atlas-panel ${className}`} style={style} {...rest}>
       <i className="atlas-stud tl" />
       <i className="atlas-stud tr" />
       <i className="atlas-stud bl" />
@@ -56,19 +86,32 @@ function Panel({
   );
 }
 
-function ToolButton({
+function IconButton({
   theme,
   icon,
   label,
   pressed,
   onClick,
+  size = TB,
+  iconSize,
+  offset = 0,
 }: {
   theme: AtlasTheme;
   icon: string;
   label: string;
   pressed?: boolean;
   onClick: () => void;
+  size?: number;
+  iconSize?: number;
+  offset?: number;
 }) {
+  const style = {
+    "--s": size,
+    "--i": iconSize ?? (size >= 20 ? 16 : size - 4),
+    // every button shows another part of the sheet, as the mod's tiling by position does
+    "--bx": `calc(var(--g) * ${-offset * 37})`,
+    "--by": `calc(var(--g) * ${-offset * 61})`,
+  } as React.CSSProperties;
   return (
     <button
       type="button"
@@ -77,6 +120,7 @@ function ToolButton({
       title={label}
       aria-pressed={pressed}
       onClick={onClick}
+      style={style}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={toolIcon(theme, icon)} alt="" draggable={false} />
@@ -85,34 +129,65 @@ function ToolButton({
 }
 
 export function MapView() {
-  const frame = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
-  const cam = useRef<Camera>({ x: 256, z: 256, scale: 2 });
+  const cam = useRef<Camera>({ x: 256, z: 256, scale: 4 });
   const size = useRef<Viewport>({ width: 800, height: 500 });
+  const gRef = useRef(2);
   const tiles = useRef(new Map<string, Loaded>());
   const pending = useRef(new Set<string>());
   const index = useRef<Ref[]>([]);
   const bg = useRef<HTMLImageElement | null>(null);
+  const arrow = useRef<HTMLImageElement | null>(null);
   const queued = useRef(false);
   const fetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
-  const ruleBar = useRef<HTMLDivElement>(null);
-  const ruleText = useRef<HTMLSpanElement>(null);
-  const coords = useRef<HTMLDivElement>(null);
 
   const feed = useRef<PlayerFeed | null>(null);
   const easing = useRef(false);
   const [feedState, setFeedState] = useState<FeedState>("connecting");
+  const [staff, setStaff] = useState(false);
 
+  const [g, setG] = useState(2);
+  const [width, setWidth] = useState(800);
   const [dim, setDim] = useState<Dim>("overworld");
   const [status, setStatus] = useState<Status>("loading");
   const [overlay, setOverlay] = useState<Overlay>("none");
   const [theme, setTheme] = useState<AtlasTheme>(DEFAULT_THEME);
-  const [showPlayers, setShowPlayers] = useState(true);
+  const [tool, setToolState] = useState<Tool>("none");
+  const [drawTool, setDrawTool] = useState<DrawTool>("pen");
+  const [colorIdx, setColorIdx] = useState(20);
+  const [widthIdx, setWidthIdx] = useState(1);
+  const [prefs, setPrefs] = useState({ players: true, drawings: true });
+  const [scaleInfo, setScaleInfo] = useState({ px: 40, blocks: 20 });
+  const [cursor, setCursor] = useState<[number, number] | null>(null);
+  const [rulerText, setRulerText] = useState<string[]>([]);
+
   const dimRef = useRef<Dim>("overworld");
   const themeRef = useRef<AtlasTheme>(DEFAULT_THEME);
-  const playersRef = useRef(true);
+  const prefsRef = useRef(prefs);
+  const toolRef = useRef<Tool>("none");
+  const drawRef = useRef({
+    tool: "pen" as DrawTool,
+    color: PALETTE[20],
+    width: 2,
+  });
+  const strokes = useRef(new Map<string, Stroke[]>());
+  const current = useRef<Stroke | null>(null);
+  const erased = useRef<Stroke[] | null>(null);
+  const undo = useRef<(() => void)[]>([]);
+  const ruler = useRef<[number, number][]>([]);
+  const mouse = useRef<[number, number] | null>(null);
+
+  const strokesOf = useCallback((d: Dim) => {
+    let list = strokes.current.get(d);
+    if (!list) {
+      list = loadStrokes(d);
+      strokes.current.set(d, list);
+    }
+    return list;
+  }, []);
 
   const paint = useCallback(() => {
     queued.current = false;
@@ -120,24 +195,31 @@ export function MapView() {
     if (!el) return;
     const ctx = el.getContext("2d")!;
     const dpr = window.devicePixelRatio || 1;
-    const { width, height } = size.current;
+    const { width: w, height: h } = size.current;
     const c = cam.current;
     const t = themeRef.current;
+    const gp = gRef.current;
+    const zoom = c.scale / gp;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
 
-    // unexplored ground is bare parchment, which moves with the map
+    // MapView.drawBackground: the theme's sheet, one texel per GUI pixel, moving with the map
     if (bg.current?.complete && bg.current.naturalWidth) {
       const pattern = ctx.createPattern(bg.current, "repeat")!;
       pattern.setTransform(
-        new DOMMatrix().translate(-c.x * c.scale, -c.z * c.scale).scale(2),
+        new DOMMatrix().translate(-c.x * c.scale, -c.z * c.scale).scale(gp),
       );
       ctx.fillStyle = pattern;
     } else {
       ctx.fillStyle = t.cream;
     }
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, w, h);
 
+    // MapView.drawTiles: one pixel per block, sharp when a block is a pixel or more on screen and
+    // averaged when it is smaller, so a far view stays calm instead of shimmering
+    const smooth = c.scale * dpr < 1;
+    ctx.imageSmoothingEnabled = smooth;
+    ctx.imageSmoothingQuality = "high";
     const now = Date.now();
     for (const { rx, rz } of visibleRegions(c, size.current)) {
       const tile = tiles.current.get(`${dimRef.current}:${rx}:${rz}`);
@@ -149,35 +231,121 @@ export function MapView() {
         rx * REGION_BLOCKS,
         rz * REGION_BLOCKS,
       );
-      const x0 = Math.floor(sx);
-      const z0 = Math.floor(sz);
+      const snap = (v: number) => Math.round(v * dpr) / dpr;
+      const x0 = snap(sx);
+      const z0 = snap(sz);
       const side = REGION_BLOCKS * c.scale;
-      // whole-pixel edges, so neighbouring tiles meet without a seam
       ctx.drawImage(
         tile.img,
         x0,
         z0,
-        Math.floor(sx + side) - x0,
-        Math.floor(sz + side) - z0,
+        snap(sx + side) - x0,
+        snap(sz + side) - z0,
+      );
+    }
+    ctx.imageSmoothingEnabled = false;
+
+    // MapView.drawGrid: a faint chunk grid from zoom 3
+    if (zoom >= 3) {
+      ctx.fillStyle = t.ink + (zoom >= 6 ? "22" : "16");
+      const [wx0, wz0] = screenToWorld(c, size.current, 0, 0);
+      const [wx1, wz1] = screenToWorld(c, size.current, w, h);
+      for (let bx = Math.floor(wx0 / 16) * 16; bx < wx1; bx += 16) {
+        const p = Math.round(worldToScreen(c, size.current, bx, 0)[0]);
+        ctx.fillRect(p, 0, gp, h);
+      }
+      for (let bz = Math.floor(wz0 / 16) * 16; bz < wz1; bz += 16) {
+        const p = Math.round(worldToScreen(c, size.current, 0, bz)[1]);
+        ctx.fillRect(0, p, w, gp);
+      }
+    }
+
+    // MapScreen.vignette: ten bands of two GUI pixels on each edge
+    for (let i = 0; i < 10; i++) {
+      const a = ((10 - i) * 7) / 255;
+      ctx.fillStyle = `${t.vignette}${Math.round(a * 255)
+        .toString(16)
+        .padStart(2, "0")}`;
+      const b = 2 * gp;
+      ctx.fillRect(0, i * b, w, b);
+      ctx.fillRect(0, h - i * b - b, w, b);
+      ctx.fillRect(i * b, 0, b, h);
+      ctx.fillRect(w - i * b - b, 0, b, h);
+    }
+
+    const tl = toolRef.current;
+    if (prefsRef.current.drawings || tl === "draw") {
+      for (const s of strokesOf(dimRef.current))
+        drawStroke(ctx, c, size.current, s, gp);
+    }
+    if (current.current) drawStroke(ctx, c, size.current, current.current, gp);
+    if (tl === "draw" && drawRef.current.tool === "eraser" && mouse.current) {
+      ctx.strokeStyle = RED;
+      ctx.lineWidth = gp;
+      const [mx, my] = mouse.current;
+      ctx.strokeRect(
+        mx - 6 * gp + gp / 2,
+        my - 6 * gp + gp / 2,
+        11 * gp,
+        11 * gp,
       );
     }
 
-    // a faint chunk grid once the blocks are big enough to count
-    if (c.scale >= 3) {
-      ctx.fillStyle = `${t.ink}${c.scale >= 6 ? "22" : "16"}`;
-      const [wx0, wz0] = screenToWorld(c, size.current, 0, 0);
-      const [wx1, wz1] = screenToWorld(c, size.current, width, height);
-      for (let bx = Math.floor(wx0 / 16) * 16; bx < wx1; bx += 16) {
-        const px = Math.round(worldToScreen(c, size.current, bx, 0)[0]);
-        ctx.fillRect(px, 0, 1, height);
+    ctx.font = `${10.5 * gp}px ${getComputedStyle(el).fontFamily}`;
+    const colors = { cream: t.cream, ink: t.ink };
+
+    // MapScreen.drawRuler
+    const pts = ruler.current;
+    if (pts.length) {
+      const sp = pts.map((p) => worldToScreen(c, size.current, p[0], p[1]));
+      for (let i = 0; i + 1 < sp.length; i++)
+        dashedLine(ctx, sp[i], sp[i + 1], 2 * gp, RED, 5 * gp);
+      const live = tl === "ruler" && mouse.current;
+      if (live)
+        dashedLine(
+          ctx,
+          sp[sp.length - 1],
+          mouse.current!,
+          1.5 * gp,
+          RED + "b0",
+          4 * gp,
+        );
+      for (const [x, y] of sp) {
+        ctx.fillStyle = t.ink;
+        ctx.fillRect(x - 3.5 * gp, y - 3.5 * gp, 7 * gp, 7 * gp);
+        ctx.fillStyle = t.accentLight;
+        ctx.fillRect(x - 2 * gp, y - 2 * gp, 4 * gp, 4 * gp);
       }
-      for (let bz = Math.floor(wz0 / 16) * 16; bz < wz1; bz += 16) {
-        const pz = Math.round(worldToScreen(c, size.current, 0, bz)[1]);
-        ctx.fillRect(0, pz, width, 1);
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const d = Math.hypot(
+          pts[i + 1][0] - pts[i][0],
+          pts[i + 1][1] - pts[i][1],
+        );
+        drawLabel(
+          ctx,
+          `${fmtDistance(d)} бл.`,
+          (sp[i][0] + sp[i + 1][0]) / 2,
+          (sp[i][1] + sp[i + 1][1]) / 2,
+          gp,
+          colors,
+        );
+      }
+      if (live) {
+        const [mx, my] = mouse.current!;
+        const [wx, wz] = screenToWorld(c, size.current, mx, my);
+        const last = pts[pts.length - 1];
+        drawLabel(
+          ctx,
+          fmtDistance(Math.hypot(wx - last[0], wz - last[1])),
+          mx + 12 * gp,
+          my + 10 * gp,
+          gp,
+          colors,
+        );
       }
     }
 
-    if (feed.current && playersRef.current)
+    if (feed.current && prefsRef.current.players)
       drawPlayers(
         ctx,
         c,
@@ -185,35 +353,9 @@ export function MapView() {
         feed.current.dots.values(),
         dimRef.current,
         feed.current.staff,
-        {
-          ink: t.ink,
-          cream: t.cream,
-          family: getComputedStyle(el).fontFamily,
-        },
+        { ink: t.ink, cream: t.cream, g: gp, arrow: arrow.current },
       );
-
-    const vignette = ctx.createRadialGradient(
-      width / 2,
-      height / 2,
-      Math.min(width, height) * 0.5,
-      width / 2,
-      height / 2,
-      Math.max(width, height) * 0.8,
-    );
-    vignette.addColorStop(0, `${t.vignette}00`);
-    vignette.addColorStop(1, `${t.vignette}55`);
-    ctx.fillStyle = vignette;
-    ctx.fillRect(0, 0, width, height);
-
-    // scale bar: the longest round distance that fits in 150 pixels
-    const blocks =
-      [...RULE_STEPS].reverse().find((s) => s * c.scale <= 150) ??
-      RULE_STEPS[0];
-    if (ruleBar.current) ruleBar.current.style.width = `${blocks * c.scale}px`;
-    if (ruleText.current) ruleText.current.textContent = `${blocks} бл.`;
-    if (coords.current)
-      coords.current.hidden = !feed.current?.staff || !coords.current.textContent;
-  }, []);
+  }, [strokesOf]);
 
   const requestPaint = useCallback(() => {
     if (queued.current) return;
@@ -221,8 +363,20 @@ export function MapView() {
     requestAnimationFrame(paint);
   }, [paint]);
 
+  /** The status bar follows the zoom: the shortest round distance at least 40 GUI pixels long. */
+  const syncScale = useCallback(() => {
+    const zoom = cam.current.scale / gRef.current;
+    const blocks = NICE.find((n) => n * zoom >= 40) ?? NICE[NICE.length - 1];
+    setScaleInfo((s) =>
+      s.blocks === blocks && s.px === Math.round(blocks * zoom)
+        ? s
+        : { blocks, px: Math.round(blocks * zoom) },
+    );
+  }, []);
+
   /** Keeps painting while a dot is still gliding to its new position. */
   const glide = useCallback(() => {
+    if (feed.current) setStaff(feed.current.staff);
     if (easing.current) return;
     easing.current = true;
     const step = () => {
@@ -242,9 +396,11 @@ export function MapView() {
       const region = byKey.get(`${rx}:${rz}`);
       if (!region) continue;
       const key = `${d}:${rx}:${rz}`;
-      const loaded = tiles.current.get(key);
       const wanted = `${key}:${region.version}`;
-      if (loaded?.version === region.version || pending.current.has(wanted))
+      if (
+        tiles.current.get(key)?.version === region.version ||
+        pending.current.has(wanted)
+      )
         continue;
       pending.current.add(wanted);
       const img = new Image();
@@ -268,27 +424,42 @@ export function MapView() {
     }
   }, [requestPaint]);
 
-  /** Puts the whole explored world on the screen. */
-  const fit = useCallback(() => {
+  const moved = useCallback(() => {
+    requestPaint();
+    syncScale();
+    clearTimeout(fetchTimer.current);
+    fetchTimer.current = setTimeout(loadVisible, 120);
+  }, [requestPaint, syncScale, loadVisible]);
+
+  const zoomBy = useCallback(
+    (factor: number, sx?: number, sz?: number) => {
+      const gp = gRef.current;
+      cam.current = zoomAt(
+        cam.current,
+        size.current,
+        sx ?? size.current.width / 2,
+        sz ?? size.current.height / 2,
+        factor,
+        MIN_ZOOM * gp,
+        MAX_ZOOM * gp,
+      );
+      moved();
+    },
+    [moved],
+  );
+
+  /** Puts the middle of the explored world on screen at the mod's starting zoom. */
+  const center = useCallback(() => {
     if (index.current.length === 0) return;
     const xs = index.current.map((r) => r.rx);
     const zs = index.current.map((r) => r.rz);
-    const x0 = Math.min(...xs);
-    const x1 = Math.max(...xs) + 1;
-    const z0 = Math.min(...zs);
-    const z1 = Math.max(...zs) + 1;
-    const span = Math.max(
-      ((x1 - x0) * REGION_BLOCKS) / size.current.width,
-      ((z1 - z0) * REGION_BLOCKS) / size.current.height,
-    );
     cam.current = {
-      x: ((x0 + x1) / 2) * REGION_BLOCKS,
-      z: ((z0 + z1) / 2) * REGION_BLOCKS,
-      scale: clampScale(Math.min(2, 0.9 / span)),
+      x: ((Math.min(...xs) + Math.max(...xs) + 1) / 2) * REGION_BLOCKS,
+      z: ((Math.min(...zs) + Math.max(...zs) + 1) / 2) * REGION_BLOCKS,
+      scale: 2 * gRef.current,
     };
-    loadVisible();
-    requestPaint();
-  }, [loadVisible, requestPaint]);
+    moved();
+  }, [moved]);
 
   const refresh = useCallback(
     async (first: boolean) => {
@@ -302,44 +473,124 @@ export function MapView() {
           return;
         }
         setStatus("ready");
-        if (first) fit();
+        if (first) center();
         else loadVisible();
       } catch {
         setStatus("error");
       }
     },
-    [fit, loadVisible, requestPaint],
+    [center, loadVisible, requestPaint],
   );
 
-  const scheduleLoad = useCallback(() => {
-    clearTimeout(fetchTimer.current);
-    fetchTimer.current = setTimeout(loadVisible, 120);
-  }, [loadVisible]);
+  const setTool = (t: Tool) => {
+    toolRef.current = t;
+    setToolState(t);
+    current.current = null;
+    if (t !== "ruler") {
+      ruler.current = [];
+      setRulerText([]);
+    }
+    requestPaint();
+  };
 
-  // size the canvas to its frame
+  const updateRuler = () => {
+    const p = ruler.current;
+    if (p.length === 0) return setRulerText([]);
+    let total = 0;
+    for (let i = 0; i + 1 < p.length; i++)
+      total += Math.hypot(p[i + 1][0] - p[i][0], p[i + 1][1] - p[i][1]);
+    let first = `Длина: ${fmtDistance(total)} бл. · точек: ${p.length}`;
+    if (p.length >= 2) {
+      const a = p[0];
+      const b = p[p.length - 1];
+      first += `   Напрямую: ${fmtDistance(Math.hypot(b[0] - a[0], b[1] - a[1]))} (ΔX ${Math.round(b[0] - a[0])}, ΔZ ${Math.round(b[1] - a[1])})`;
+    }
+    setRulerText([first]);
+  };
+
+  const commitStrokes = () =>
+    saveStrokes(dimRef.current, strokesOf(dimRef.current));
+
+  const doUndo = () => {
+    const r = undo.current.pop();
+    if (r) {
+      r();
+      commitStrokes();
+      requestPaint();
+    }
+  };
+
+  const clearDrawings = () => {
+    const list = strokesOf(dimRef.current);
+    const copy = [...list];
+    list.length = 0;
+    undo.current.push(() => list.push(...copy));
+    commitStrokes();
+    requestPaint();
+  };
+
+  const savePrefs = (p: typeof prefs) => {
+    prefsRef.current = p;
+    setPrefs(p);
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(p));
+    } catch {
+      /* kept until the page closes */
+    }
+    requestPaint();
+  };
+
+  const chooseTheme = (t: AtlasTheme) => {
+    setTheme(t);
+    try {
+      localStorage.setItem(THEME_KEY, t.id);
+    } catch {
+      /* kept until the page closes */
+    }
+  };
+
+  // size the canvas and the GUI scale to the window
   useEffect(() => {
-    const el = frame.current;
+    const el = root.current;
     const cv = canvas.current;
     if (!el || !cv) return;
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
-      const { width, height } = el.getBoundingClientRect();
-      size.current = { width, height };
-      cv.width = Math.round(width * dpr);
-      cv.height = Math.round(height * dpr);
-      requestPaint();
-      scheduleLoad();
+      const { width: w, height: h } = el.getBoundingClientRect();
+      const nextG = guiScale(w, h);
+      if (nextG !== gRef.current) {
+        cam.current = {
+          ...cam.current,
+          scale: (cam.current.scale / gRef.current) * nextG,
+        };
+        gRef.current = nextG;
+      }
+      setG(nextG);
+      setWidth(w);
+      size.current = { width: w, height: h };
+      cv.width = Math.round(w * dpr);
+      cv.height = Math.round(h * dpr);
+      moved();
     };
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [requestPaint, scheduleLoad]);
+  }, [moved]);
+
+  // the page under the map does not scroll while the map is open
+  useEffect(() => {
+    const html = document.documentElement;
+    const before = html.style.overflow;
+    html.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = before;
+    };
+  }, []);
 
   // first load, a change of dimension, and a refresh every half minute
   useEffect(() => {
     dimRef.current = dim;
-    // started from a timer, not the effect body, because loading updates the screen state
     const first = setTimeout(() => void refresh(true), 0);
     const timer = setInterval(() => void refresh(false), REFRESH_MS);
     return () => {
@@ -348,27 +599,42 @@ export function MapView() {
     };
   }, [dim, refresh]);
 
-  // the saved design, read after the first paint so the server and the browser agree on the markup
+  // saved choices, read after the first paint so the server and the browser agree on the markup
   useEffect(() => {
     const read = setTimeout(() => {
       try {
         setTheme(themeById(localStorage.getItem(THEME_KEY)));
+        const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "null");
+        if (
+          p &&
+          typeof p.players === "boolean" &&
+          typeof p.drawings === "boolean"
+        ) {
+          prefsRef.current = p;
+          setPrefs(p);
+        }
       } catch {
-        /* storage can be blocked; the default design stays */
+        /* storage can be blocked; the defaults stay */
       }
     }, 0);
     return () => clearTimeout(read);
   }, []);
 
-  // the parchment of the chosen design is the ground of the canvas
+  // the chosen design's sheet is the ground of the map, its arrow marks the players
   useEffect(() => {
     themeRef.current = theme;
-    const img = new Image();
-    img.onload = () => {
-      bg.current = img;
+    const sheet = new Image();
+    sheet.onload = () => {
+      bg.current = sheet;
       requestPaint();
     };
-    img.src = theme.panel;
+    sheet.src = theme.panel;
+    const a = new Image();
+    a.onload = () => {
+      arrow.current = a;
+      requestPaint();
+    };
+    a.src = toolIcon(theme, "arrow");
     requestPaint();
   }, [theme, requestPaint]);
 
@@ -390,79 +656,206 @@ export function MapView() {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const r = cv.getBoundingClientRect();
-      cam.current = zoomAt(
-        cam.current,
-        size.current,
-        e.clientX - r.left,
-        e.clientY - r.top,
-        e.deltaY < 0 ? 1.25 : 0.8,
-      );
-      requestPaint();
-      scheduleLoad();
+      const notches =
+        Math.max(-3, Math.min(3, -e.deltaY / 100)) || (e.deltaY < 0 ? 1 : -1);
+      zoomBy(Math.pow(1.2, notches), e.clientX - r.left, e.clientY - r.top);
     };
     cv.addEventListener("wheel", onWheel, { passive: false });
     return () => cv.removeEventListener("wheel", onWheel);
-  }, [requestPaint, scheduleLoad]);
+  }, [zoomBy]);
+
+  // ------------------------------------------------------------------ pointer input
 
   const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const press = useRef<{
+    x: number;
+    y: number;
+    button: number;
+    cam: Camera;
+    dragging: boolean;
+  } | null>(null);
   const pinch = useRef(0);
+
+  const local = (e: React.PointerEvent): [number, number] => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  };
+
+  const eraseAt = (mx: number, my: number) => {
+    const list = strokesOf(dimRef.current);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const s = list[i];
+      if (
+        distanceTo(cam.current, size.current, s, mx, my) <=
+        (6 + s.width / 2) * gRef.current
+      ) {
+        list.splice(i, 1);
+        (erased.current ??= []).push(s);
+      }
+    }
+  };
 
   const onPointerDown = (e: React.PointerEvent) => {
     e.currentTarget.setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     pinch.current = 0;
+    const [mx, my] = local(e);
+    press.current = {
+      x: mx,
+      y: my,
+      button: e.button,
+      cam: cam.current,
+      dragging: false,
+    };
+    if (
+      toolRef.current === "draw" &&
+      e.button === 0 &&
+      pointers.current.size === 1
+    ) {
+      const [wx, wz] = screenToWorld(cam.current, size.current, mx, my);
+      const { tool: dt, color, width: wd } = drawRef.current;
+      if (dt === "eraser") {
+        erased.current = null;
+        eraseAt(mx, my);
+      } else {
+        current.current = {
+          type: dt,
+          color,
+          width: wd,
+          pts: dt === "pen" ? [wx, wz] : [wx, wz, wx, wz],
+        };
+      }
+      requestPaint();
+    }
   };
+
   const onPointerMove = (e: React.PointerEvent) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    if (coords.current && feed.current?.staff) {
-      const [wx, wz] = screenToWorld(
-        cam.current,
-        size.current,
-        e.clientX - r.left,
-        e.clientY - r.top,
-      );
-      coords.current.textContent = `X ${Math.round(wx)}  Z ${Math.round(wz)}`;
-      coords.current.hidden = false;
+    const [mx, my] = local(e);
+    mouse.current = [mx, my];
+    if (feed.current?.staff) {
+      const [wx, wz] = screenToWorld(cam.current, size.current, mx, my);
+      setCursor([Math.floor(wx), Math.floor(wz)]);
     }
     const prev = pointers.current.get(e.pointerId);
-    if (!prev) return;
+    if (!prev) {
+      if (toolRef.current !== "none") requestPaint();
+      return;
+    }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const all = [...pointers.current.values()];
-    if (all.length === 1) {
-      cam.current = panBy(cam.current, e.clientX - prev.x, e.clientY - prev.y);
-    } else if (all.length === 2) {
+    const p = press.current;
+    if (all.length === 2) {
+      current.current = null;
       const d = Math.hypot(all[0].x - all[1].x, all[0].y - all[1].y);
       if (pinch.current) {
-        cam.current = zoomAt(
-          cam.current,
-          size.current,
+        const r = e.currentTarget.getBoundingClientRect();
+        zoomBy(
+          d / pinch.current,
           (all[0].x + all[1].x) / 2 - r.left,
           (all[0].y + all[1].y) / 2 - r.top,
-          d / pinch.current,
         );
       }
       pinch.current = d;
+      if (p) p.dragging = true;
+      return;
     }
-    requestPaint();
-    scheduleLoad();
+    if (!p) return;
+    if (toolRef.current === "draw" && p.button === 0) {
+      if (drawRef.current.tool === "eraser") {
+        eraseAt(mx, my);
+      } else if (current.current) {
+        const [wx, wz] = screenToWorld(cam.current, size.current, mx, my);
+        const s = current.current;
+        if (s.type === "pen") {
+          const [lx, ly] = worldToScreen(
+            cam.current,
+            size.current,
+            s.pts[s.pts.length - 2],
+            s.pts[s.pts.length - 1],
+          );
+          if (Math.hypot(mx - lx, my - ly) >= 2 * gRef.current)
+            s.pts.push(wx, wz);
+        } else {
+          s.pts[2] = wx;
+          s.pts[3] = wz;
+        }
+      }
+      requestPaint();
+      return;
+    }
+    if (!p.dragging && Math.hypot(mx - p.x, my - p.y) > 3 * gRef.current)
+      p.dragging = true;
+    if (p.dragging) {
+      cam.current = panBy(p.cam, mx - p.x, my - p.y);
+      moved();
+    }
   };
+
   const onPointerUp = (e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
     pinch.current = 0;
+    const p = press.current;
+    if (!p || pointers.current.size > 0) return;
+    press.current = null;
+    const [mx, my] = local(e);
+    if (toolRef.current === "draw" && p.button === 0) {
+      const list = strokesOf(dimRef.current);
+      if (drawRef.current.tool === "eraser") {
+        const removed = erased.current;
+        if (removed?.length) {
+          undo.current.push(() => list.push(...removed));
+          commitStrokes();
+        }
+        erased.current = null;
+      } else if (current.current) {
+        const s = current.current;
+        current.current = null;
+        const [ax, ay] = worldToScreen(
+          cam.current,
+          size.current,
+          s.pts[0],
+          s.pts[1],
+        );
+        const [bx, by] =
+          s.pts.length >= 4
+            ? worldToScreen(cam.current, size.current, s.pts[2], s.pts[3])
+            : [ax, ay];
+        if (
+          s.type === "pen" ||
+          Math.hypot(bx - ax, by - ay) > 2 * gRef.current
+        ) {
+          list.push(s);
+          undo.current.push(() => {
+            const i = list.indexOf(s);
+            if (i >= 0) list.splice(i, 1);
+          });
+          commitStrokes();
+          if (!prefsRef.current.drawings)
+            savePrefs({ ...prefsRef.current, drawings: true });
+        }
+      }
+      requestPaint();
+      return;
+    }
+    if (!p.dragging && toolRef.current === "ruler") {
+      if (p.button === 0) {
+        ruler.current.push(screenToWorld(cam.current, size.current, mx, my));
+      } else if (p.button === 2) {
+        ruler.current.pop();
+      }
+      updateRuler();
+      requestPaint();
+    }
   };
 
-  const zoomBy = (factor: number) => {
-    cam.current = zoomAt(
-      cam.current,
-      size.current,
-      size.current.width / 2,
-      size.current.height / 2,
-      factor,
-    );
-    requestPaint();
-    scheduleLoad();
-  };
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.target instanceof HTMLInputElement) return;
+    if (e.key === "Escape") {
+      if (overlay !== "none") setOverlay("none");
+      else if (tool !== "none") setTool("none");
+      return;
+    }
+    if (overlay !== "none") return;
     const step = 80;
     const keys: Record<string, [number, number]> = {
       ArrowLeft: [step, 0],
@@ -471,157 +864,393 @@ export function MapView() {
       ArrowDown: [0, -step],
     };
     if (keys[e.key]) {
+      e.preventDefault();
       cam.current = panBy(cam.current, ...keys[e.key]);
-    } else if (e.key === "+" || e.key === "=") {
-      zoomBy(1.5);
-      return;
-    } else if (e.key === "-") {
-      zoomBy(1 / 1.5);
-      return;
-    } else return;
-    e.preventDefault();
-    requestPaint();
-    scheduleLoad();
-  };
-
-  const chooseTheme = (t: AtlasTheme) => {
-    setTheme(t);
-    try {
-      localStorage.setItem(THEME_KEY, t.id);
-    } catch {
-      /* the choice then lasts until the page is closed */
+      moved();
+    } else if (e.key === "+" || e.key === "=") zoomBy(1.5);
+    else if (e.key === "-") zoomBy(1 / 1.5);
+    else if (e.code === "KeyR") setTool(tool === "ruler" ? "none" : "ruler");
+    else if (e.code === "KeyG") setTool(tool === "draw" ? "none" : "draw");
+    else if (e.code === "KeyH")
+      savePrefs({ ...prefs, drawings: !prefs.drawings });
+    else if (e.code === "KeyZ" && (e.ctrlKey || e.metaKey)) doUndo();
+    else if (e.key === "Backspace" && tool === "ruler") {
+      ruler.current = [];
+      updateRuler();
+      requestPaint();
     }
   };
-  const toggleOverlay = (o: Overlay) =>
-    setOverlay((cur) => (cur === o ? "none" : o));
+
+  // ------------------------------------------------------------------ layout
+
+  const gw = width / g; // the window width in GUI pixels
+  const freeLeft = 6 + TB + 8;
+  const freeRight = gw - 6;
+  const midX = ((freeLeft + freeRight) / 2) * g;
+  const u = (n: number) => px(n * g);
+
+  type Action =
+    | "ruler"
+    | "draw"
+    | "drawings"
+    | "center"
+    | "in"
+    | "out"
+    | "dims"
+    | "settings";
+  const toolbar: {
+    action: Action;
+    icon: string;
+    label: string;
+    pressed?: boolean;
+  }[] = [
+    {
+      action: "ruler",
+      icon: "ruler",
+      label: "Линейка [R]",
+      pressed: tool === "ruler",
+    },
+    {
+      action: "draw",
+      icon: "quill",
+      label: "Редактор — рисовать на карте [G]",
+      pressed: tool === "draw",
+    },
+    {
+      action: "drawings",
+      icon: prefs.drawings ? "eye" : "eye_off",
+      label: prefs.drawings ? "Скрыть рисунки [H]" : "Показать рисунки [H]",
+      pressed: !prefs.drawings,
+    },
+    { action: "center", icon: "map", label: "К середине карты" },
+    { action: "in", icon: "zoom_in", label: "Приблизить [+ / колесо]" },
+    { action: "out", icon: "zoom_out", label: "Отдалить [- / колесо]" },
+    {
+      action: "dims",
+      icon: "globe",
+      label: "Измерения",
+      pressed: overlay === "dims",
+    },
+    {
+      action: "settings",
+      icon: "gear",
+      label: "Настройки",
+      pressed: overlay === "settings",
+    },
+  ];
+  function run(action: Action) {
+    if (action === "ruler") setTool(tool === "ruler" ? "none" : "ruler");
+    else if (action === "draw") setTool(tool === "draw" ? "none" : "draw");
+    else if (action === "drawings")
+      savePrefs({ ...prefs, drawings: !prefs.drawings });
+    else if (action === "center") center();
+    else if (action === "in") zoomBy(1.5);
+    else if (action === "out") zoomBy(1 / 1.5);
+    else if (action === "dims")
+      setOverlay(overlay === "dims" ? "none" : "dims");
+    else setOverlay("settings");
+  }
+  const globeAt = toolbar.findIndex((b) => b.icon === "globe");
+
+  const drawBarW = 20 * 11 + 15;
+  const settingsW = Math.min(gw - 16, 430);
+  const twoCols = settingsW >= 380;
+  const colW = twoCols ? (settingsW - 30) / 2 : settingsW - 20;
+  const tileW = (colW - 4) / 2;
 
   return (
     <div
-      ref={frame}
+      ref={root}
       tabIndex={0}
       onKeyDown={onKeyDown}
-      style={themeVars(theme)}
+      style={{ ...themeVars(theme), "--g": px(g) } as React.CSSProperties}
       data-ornate={theme.ornate}
-      className="atlas relative h-[72dvh] min-h-[440px] touch-none overflow-hidden border-2 border-(--ink)"
+      className="atlas"
     >
       <canvas
         ref={canvas}
         role="img"
         aria-label="Карта мира. Перетаскивайте, чтобы двигать, колесо мыши или кнопки плюс и минус, чтобы менять масштаб."
-        className="absolute inset-0 size-full cursor-grab active:cursor-grabbing"
+        className="absolute inset-0 size-full"
+        style={{ cursor: tool === "none" ? "grab" : "crosshair" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onPointerLeave={() => {
+          mouse.current = null;
+          setCursor(null);
+          if (toolRef.current !== "none") requestPaint();
+        }}
+        onContextMenu={(e) => e.preventDefault()}
       />
 
-      <Panel className="atlas-plaque absolute top-3 left-1/2 -translate-x-1/2">
-        Мир MineOrt &nbsp;·&nbsp; {DIM_NAMES[dim]}
-      </Panel>
-
-      <Panel
-        className="absolute top-3 left-3 flex flex-col gap-1.5 p-1.5"
+      {/* MapScreen.drawToolbar */}
+      <div
+        className="atlas-toolbar"
         role="toolbar"
         aria-label="Инструменты карты"
         aria-orientation="vertical"
       >
-        <ToolButton
-          theme={theme}
-          icon="map"
-          label="Показать весь мир"
-          onClick={fit}
-        />
-        <ToolButton
-          theme={theme}
-          icon={showPlayers ? "eye" : "eye_off"}
-          label={showPlayers ? "Скрыть игроков" : "Показать игроков"}
-          pressed={!showPlayers}
-          onClick={() => {
-            playersRef.current = !showPlayers;
-            setShowPlayers(!showPlayers);
-            requestPaint();
-          }}
-        />
-        <ToolButton
-          theme={theme}
-          icon="zoom_in"
-          label="Приблизить"
-          onClick={() => zoomBy(1.5)}
-        />
-        <ToolButton
-          theme={theme}
-          icon="zoom_out"
-          label="Отдалить"
-          onClick={() => zoomBy(1 / 1.5)}
-        />
-        <ToolButton
-          theme={theme}
-          icon="globe"
-          label="Измерение"
-          pressed={overlay === "dims"}
-          onClick={() => toggleOverlay("dims")}
-        />
-        <ToolButton
-          theme={theme}
-          icon="gear"
-          label="Оформление"
-          pressed={overlay === "themes"}
-          onClick={() => toggleOverlay("themes")}
-        />
-      </Panel>
-
-      {overlay === "dims" && (
-        <Panel
-          className="absolute top-3 left-[72px] flex flex-col gap-1.5 p-2"
-          role="group"
-          aria-label="Измерение"
+        {toolbar.map((b, i) => (
+          <IconButton
+            key={b.action}
+            theme={theme}
+            offset={i}
+            icon={b.icon}
+            label={b.label}
+            pressed={b.pressed}
+            onClick={() => run(b.action)}
+          />
+        ))}
+        <Link
+          href="/"
+          className="atlas-btn"
+          aria-label="Закрыть карту"
+          title="Закрыть карту"
+          style={{ "--bx": u(-300), "--by": u(-500) } as React.CSSProperties}
         >
-          {(["overworld", "nether"] as const).map((d) => (
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={toolIcon(theme, "close")} alt="" draggable={false} />
+        </Link>
+      </div>
+
+      {/* MapScreen.drawTitle, or the ruler bar, or the drawing bar */}
+      {tool === "none" && (
+        <Panel
+          className="flex items-center"
+          style={{
+            left: px(midX),
+            top: u(6),
+            height: u(18),
+            maxWidth: u(freeRight - freeLeft),
+            padding: `0 ${u(3)}`,
+            transform: "translateX(-50%)",
+            overflow: "hidden",
+          }}
+        >
+          <span className="atlas-title">
+            Мир MineOrt &nbsp;·&nbsp; {DIM_NAMES[dim]}
+          </span>
+        </Panel>
+      )}
+
+      {tool === "ruler" && (
+        <Panel
+          role="status"
+          style={{
+            left: px(midX),
+            top: u(6),
+            transform: "translateX(-50%)",
+            width: "max-content",
+            maxWidth: u(freeRight - freeLeft),
+            padding: `${u(5)} ${u(14)} ${u(5)} ${u(30)}`,
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={toolIcon(theme, "ruler")}
+            alt=""
+            className="absolute"
+            style={{
+              left: u(8),
+              top: "50%",
+              width: u(16),
+              height: u(16),
+              transform: "translateY(-50%)",
+            }}
+          />
+          {rulerText.map((l) => (
+            <div key={l}>{l}</div>
+          ))}
+          <div style={{ color: "var(--ink-soft)" }}>
+            ЛКМ — точка, ПКМ — убрать последнюю, Backspace — сброс
+          </div>
+        </Panel>
+      )}
+
+      {tool === "draw" && (
+        <Panel
+          style={{
+            left: px(midX - (drawBarW * g) / 2),
+            top: u(6),
+            width: u(drawBarW),
+            height: u(64),
+          }}
+          role="group"
+          aria-label="Рисование"
+        >
+          {DRAW_TOOLS.map((d, i) => (
+            <div
+              key={d.tool}
+              className="absolute"
+              style={{ left: u(6 + i * 20), top: u(4) }}
+            >
+              <IconButton
+                theme={theme}
+                icon={d.icon}
+                label={d.label}
+                size={18}
+                offset={i + 3}
+                pressed={drawTool === d.tool}
+                onClick={() => {
+                  setDrawTool(d.tool);
+                  drawRef.current.tool = d.tool;
+                }}
+              />
+            </div>
+          ))}
+          {WIDTHS.map((wd, i) => (
             <button
-              key={d}
+              key={wd}
               type="button"
-              className="atlas-label-btn"
-              aria-pressed={dim === d}
+              aria-label={`Толщина ${wd}`}
+              aria-pressed={widthIdx === i}
+              className="absolute grid place-items-center"
+              style={{
+                left: u(6 + 5 * 20 + 4 + i * 14),
+                top: u(4),
+                width: u(13),
+                height: u(18),
+                cursor: "pointer",
+                background:
+                  widthIdx === i
+                    ? "color-mix(in srgb, var(--gold) 25%, transparent)"
+                    : undefined,
+                border:
+                  widthIdx === i ? `${u(1)} solid var(--gold)` : undefined,
+              }}
               onClick={() => {
-                if (d !== dim) {
-                  setStatus("loading");
-                  setDim(d);
-                }
-                setOverlay("none");
+                setWidthIdx(i);
+                drawRef.current.width = wd;
               }}
             >
-              {DIM_NAMES[d]}
+              <span
+                style={{
+                  width: u(wd + 1),
+                  height: u(wd + 1),
+                  background:
+                    PALETTE[colorIdx] === "#ffffff" ||
+                    PALETTE[colorIdx] === "#f2e6c8"
+                      ? "var(--ink)"
+                      : PALETTE[colorIdx],
+                }}
+              />
             </button>
           ))}
-        </Panel>
-      )}
-
-      {overlay === "themes" && (
-        <Panel
-          className="absolute top-3 left-[72px] grid grid-cols-2 gap-1.5 p-2"
-          role="group"
-          aria-label="Оформление"
-        >
-          {THEMES.map((t) => (
+          <div
+            className="absolute"
+            style={{ left: u(drawBarW - 7 - 38 - 1), top: u(4) }}
+          >
+            <IconButton
+              theme={theme}
+              icon="undo"
+              label="Отменить [Ctrl+Z]"
+              size={18}
+              offset={9}
+              onClick={doUndo}
+            />
+          </div>
+          <div
+            className="absolute"
+            style={{ left: u(drawBarW - 7 - 18 - 1), top: u(4) }}
+          >
+            <IconButton
+              theme={theme}
+              icon="trash"
+              label="Стереть все рисунки этого измерения"
+              size={18}
+              offset={10}
+              onClick={() => setOverlay("confirm")}
+            />
+          </div>
+          {PALETTE.map((col, i) => (
             <button
-              key={t.id}
+              key={i}
               type="button"
-              className="atlas-label-btn"
-              aria-pressed={theme.id === t.id}
-              onClick={() => chooseTheme(t)}
-            >
-              {t.name}
-            </button>
+              aria-label={`Цвет ${i + 1}`}
+              aria-pressed={colorIdx === i}
+              className="absolute"
+              style={{
+                left: u(7 + (i % 20) * 11 - 1),
+                top: u(27 + Math.floor(i / 20) * 11 - 1),
+                width: u(11),
+                height: u(11),
+                background: col,
+                border: `${u(1)} solid var(--ink)`,
+                outline:
+                  colorIdx === i
+                    ? `${u(1)} solid var(--gold-light)`
+                    : undefined,
+                boxShadow:
+                  colorIdx === i
+                    ? `0 0 0 ${u(1)} var(--gold) inset`
+                    : undefined,
+                cursor: "pointer",
+              }}
+              onClick={() => {
+                setColorIdx(i);
+                drawRef.current.color = col;
+              }}
+            />
           ))}
         </Panel>
       )}
 
-      <Panel className="absolute bottom-3 left-3 flex flex-col gap-1 px-2.5 py-1.5 text-xs">
-        <div ref={coords} hidden aria-live="off" />
-        <div className="flex items-center gap-2">
-          <div ref={ruleBar} className="atlas-rule" style={{ width: 100 }} />
-          <span ref={ruleText}>50 бл.</span>
-        </div>
+      {/* MapScreen.drawStatus: cursor position (staff only on this site) and the scale bar */}
+      <Panel
+        className="flex items-center"
+        style={{
+          left: u(6 + TB + 10),
+          bottom: u(6),
+          height: u(16),
+          padding: `0 ${u(6)}`,
+          gap: u(5),
+        }}
+      >
+        {staff && cursor && (
+          <span style={{ marginRight: u(7), whiteSpace: "pre" }}>
+            {`X ${cursor[0]}   Z ${cursor[1]}`}
+          </span>
+        )}
+        <span
+          className="relative"
+          style={{ width: px(scaleInfo.px * g), height: u(7), flex: "none" }}
+          aria-hidden="true"
+        >
+          <span
+            className="absolute inset-x-0"
+            style={{ bottom: u(1), height: u(2), background: "var(--ink)" }}
+          />
+          <span
+            className="absolute left-0"
+            style={{
+              bottom: 0,
+              width: u(1),
+              height: u(7),
+              background: "var(--ink)",
+            }}
+          />
+          <span
+            className="absolute right-0"
+            style={{
+              bottom: 0,
+              width: u(1),
+              height: u(7),
+              background: "var(--ink)",
+            }}
+          />
+          <span
+            className="absolute left-1/2"
+            style={{
+              bottom: u(1),
+              width: u(1),
+              height: u(4),
+              background: "var(--ink)",
+            }}
+          />
+        </span>
+        <span style={{ color: "var(--ink-soft)" }}>{scaleInfo.blocks} бл.</span>
       </Panel>
 
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -630,68 +1259,363 @@ export function MapView() {
         alt=""
         aria-hidden="true"
         draggable={false}
-        className="pointer-events-none absolute right-3 bottom-3 size-16 opacity-90"
+        className="pointer-events-none absolute"
+        style={{ right: u(10), bottom: u(8), width: u(48), height: u(48) }}
       />
 
-      {feedState === "guest" && (
-        <a
-          href="/api/auth/telegram/start?return_to=/map"
-          className="atlas-label-btn absolute right-24 bottom-4"
-        >
-          Войдите, чтобы видеть игроков
-        </a>
-      )}
-      {feedState === "nonmember" && (
-        <Panel
-          role="status"
-          className="atlas-status pointer-events-none absolute right-24 bottom-4"
-        >
-          Игроков видят участники сообщества
-        </Panel>
-      )}
-      {feedState === "offline" && (
-        <Panel
-          role="status"
-          className="atlas-status pointer-events-none absolute right-24 bottom-4"
-        >
-          Игроки сейчас не видны
-        </Panel>
-      )}
-
-      {status === "empty" && (
+      {/* site states the mod has no screen for: who may see players, an empty or failed map */}
+      {(feedState === "guest" ||
+        feedState === "nonmember" ||
+        feedState === "offline" ||
+        status !== "ready") && (
         <div
-          role="status"
-          className="pointer-events-none absolute inset-0 grid place-items-center p-6 text-center"
+          className="absolute flex flex-col items-end"
+          style={{
+            right: u(6),
+            bottom: u(60),
+            gap: u(4),
+            maxWidth: u(gw - 40),
+          }}
         >
-          <Panel className="max-w-sm p-4 text-sm">
-            Карта откроется, когда игроки начнут исследовать мир.
-          </Panel>
+          {status === "loading" && (
+            <Panel
+              role="status"
+              style={{
+                position: "relative",
+                padding: `${u(3)} ${u(6)}`,
+              }}
+            >
+              Загрузка карты…
+            </Panel>
+          )}
+          {feedState === "guest" && (
+            <a
+              href="/api/auth/telegram/start?return_to=/map"
+              className="atlas-text-btn"
+            >
+              Войдите, чтобы видеть игроков
+            </a>
+          )}
+          {feedState === "nonmember" && (
+            <Panel
+              role="status"
+              style={{ position: "relative", padding: `${u(3)} ${u(6)}` }}
+            >
+              Игроков видят участники сообщества
+            </Panel>
+          )}
+          {feedState === "offline" && (
+            <Panel
+              role="status"
+              style={{ position: "relative", padding: `${u(3)} ${u(6)}` }}
+            >
+              Игроки сейчас не видны
+            </Panel>
+          )}
         </div>
       )}
-      {status === "loading" && (
+      {status === "empty" && (
         <Panel
           role="status"
-          className="atlas-status absolute bottom-4 left-1/2 -translate-x-1/2"
+          className="text-center"
+          style={{
+            left: "50%",
+            top: "50%",
+            transform: "translate(-50%,-50%)",
+            padding: u(10),
+            maxWidth: u(220),
+          }}
         >
-          Загрузка карты…
+          Карта откроется, когда игроки начнут исследовать мир.
         </Panel>
       )}
       {status === "error" && (
-        <div
+        <Panel
           role="alert"
-          className="pointer-events-none absolute inset-0 grid place-items-center p-6 text-center"
+          className="flex flex-col items-center text-center"
+          style={{
+            left: "50%",
+            top: "50%",
+            transform: "translate(-50%,-50%)",
+            padding: u(10),
+            gap: u(8),
+          }}
         >
-          <Panel className="pointer-events-auto p-4 text-sm">
-            <p className="mb-3">Не удалось загрузить карту.</p>
-            <button
-              type="button"
-              className="atlas-label-btn"
-              onClick={() => void refresh(true)}
-            >
-              Повторить
-            </button>
+          Не удалось загрузить карту.
+          <button
+            type="button"
+            className="atlas-text-btn"
+            style={{ width: u(100) }}
+            onClick={() => void refresh(true)}
+          >
+            Повторить
+          </button>
+        </Panel>
+      )}
+
+      {/* MapScreen.drawDims */}
+      {overlay === "dims" && (
+        <>
+          <div className="atlas-dim" onClick={() => setOverlay("none")} />
+          <Panel
+            role="group"
+            aria-label="Измерения"
+            style={{
+              left: u(6 + TB + 8),
+              top: u(Math.max(6, 6 + globeAt * (TB + 3))),
+              width: u(150),
+              padding: `${u(5)} ${u(7)} ${u(7)}`,
+            }}
+          >
+            <div className="atlas-title" style={{ marginBottom: u(5) }}>
+              Измерения
+            </div>
+            <div className="flex flex-col" style={{ gap: u(3) }}>
+              {(["overworld", "nether"] as const).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  className="atlas-text-btn"
+                  aria-pressed={dim === d}
+                  onClick={() => {
+                    if (d !== dim) {
+                      setStatus("loading");
+                      setDim(d);
+                      ruler.current = [];
+                      setRulerText([]);
+                    }
+                    setOverlay("none");
+                  }}
+                >
+                  {dim === d ? `» ${DIM_NAMES[d]} «` : DIM_NAMES[d]}
+                </button>
+              ))}
+            </div>
           </Panel>
-        </div>
+        </>
+      )}
+
+      {/* SettingsScreen */}
+      {overlay === "settings" && (
+        <>
+          <div
+            className="atlas-dim"
+            style={{ background: "var(--dim)" }}
+            onClick={() => setOverlay("none")}
+          />
+          <Panel
+            role="dialog"
+            aria-label="Настройки"
+            style={{
+              left: "50%",
+              top: "50%",
+              transform: "translate(-50%,-50%)",
+              width: u(settingsW),
+              maxHeight: `calc(100% - ${u(16)})`,
+              padding: `${u(6)} ${u(10)} ${u(28)}`,
+              overflowY: "auto",
+            }}
+          >
+            <div className="atlas-title" style={{ marginBottom: u(7) }}>
+              Настройки
+            </div>
+            <div className="absolute" style={{ right: u(4), top: u(4) }}>
+              <IconButton
+                theme={theme}
+                icon="close"
+                label="Закрыть настройки"
+                size={13}
+                offset={2}
+                onClick={() => setOverlay("none")}
+              />
+            </div>
+            <div
+              className={twoCols ? "flex" : "flex flex-col"}
+              style={{ gap: u(10) }}
+            >
+              <div style={{ width: u(colW) }}>
+                <div className="atlas-section">Оформление</div>
+                <div className="grid grid-cols-2" style={{ gap: u(4) }}>
+                  {THEMES.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className="atlas-theme"
+                      aria-pressed={theme.id === t.id}
+                      aria-label={t.name}
+                      onClick={() => chooseTheme(t)}
+                      style={{
+                        width: u(tileW),
+                        backgroundImage: `url(${t.panel})`,
+                        color: t.ink,
+                      }}
+                    >
+                      <span
+                        className="absolute"
+                        style={{ left: u(4), top: u(4) }}
+                      >
+                        {t.name}
+                      </span>
+                      {theme.id === t.id && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={toolIcon(t, "check")}
+                          alt=""
+                          className="absolute"
+                          style={{
+                            right: u(2),
+                            top: u(2),
+                            width: u(12),
+                            height: u(12),
+                          }}
+                        />
+                      )}
+                      <span
+                        className="absolute"
+                        style={{
+                          left: u(3),
+                          bottom: u(3),
+                          width: u(26),
+                          height: u(10),
+                          background: `url(${t.panelDark}) 0 0 / ${u(256)}`,
+                          border: `${u(1)} solid ${t.ink}`,
+                        }}
+                      />
+                      <span
+                        className="absolute"
+                        style={{
+                          left: u(33),
+                          right: u(5),
+                          bottom: u(7),
+                          height: u(2),
+                          background: t.accent,
+                        }}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ width: u(colW) }}>
+                <div className="atlas-section">Карта</div>
+                <div className="flex flex-col" style={{ gap: u(3) }}>
+                  <button
+                    type="button"
+                    className="atlas-text-btn"
+                    aria-pressed={prefs.players}
+                    onClick={() =>
+                      savePrefs({ ...prefs, players: !prefs.players })
+                    }
+                  >
+                    Игроки на карте: {prefs.players ? "вкл" : "выкл"}
+                  </button>
+                  <button
+                    type="button"
+                    className="atlas-text-btn"
+                    aria-pressed={prefs.drawings}
+                    onClick={() =>
+                      savePrefs({ ...prefs, drawings: !prefs.drawings })
+                    }
+                  >
+                    Рисунки на карте: {prefs.drawings ? "вкл" : "выкл"}
+                  </button>
+                </div>
+                <p className="atlas-hint" style={{ marginTop: u(6) }}>
+                  Рисунки хранятся только в этом браузере.
+                </p>
+                <p className="atlas-hint" style={{ marginTop: u(6) }}>
+                  Вид карты и интерфейс — мод{" "}
+                  <a
+                    href="https://github.com/erkinpaw/atlasmap"
+                    className="underline"
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    AtlasMap
+                  </a>{" "}
+                  (erkinpaw, лицензия{" "}
+                  <a
+                    href="/map/ATLASMAP-LICENSE.txt"
+                    className="underline"
+                    target="_blank"
+                  >
+                    MIT
+                  </a>
+                  ).
+                </p>
+              </div>
+            </div>
+            <div
+              className="absolute"
+              style={{
+                left: "50%",
+                bottom: u(6),
+                transform: "translateX(-50%)",
+              }}
+            >
+              <button
+                type="button"
+                className="atlas-text-btn"
+                style={{ width: u(100) }}
+                onClick={() => setOverlay("none")}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={toolIcon(theme, "check")} alt="" />
+                Готово
+              </button>
+            </div>
+          </Panel>
+        </>
+      )}
+
+      {/* MapScreen.drawConfirm */}
+      {overlay === "confirm" && (
+        <>
+          <div
+            className="atlas-dim"
+            style={{ background: "var(--dim)" }}
+            onClick={() => setOverlay("none")}
+          />
+          <Panel
+            role="alertdialog"
+            aria-label="Стереть все рисунки в этом измерении?"
+            className="flex flex-col items-center text-center"
+            style={{
+              left: "50%",
+              top: "50%",
+              transform: "translate(-50%,-50%)",
+              width: u(Math.min(240, gw - 20)),
+              padding: `${u(12)} ${u(12)} ${u(8)}`,
+              gap: u(12),
+            }}
+          >
+            Стереть все рисунки в этом измерении?
+            <div className="flex" style={{ gap: u(8) }}>
+              <button
+                type="button"
+                className="atlas-text-btn"
+                style={{ width: u(80) }}
+                onClick={() => {
+                  clearDrawings();
+                  setOverlay("none");
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={toolIcon(theme, "check")} alt="" />
+                Да
+              </button>
+              <button
+                type="button"
+                className="atlas-text-btn"
+                style={{ width: u(80) }}
+                onClick={() => setOverlay("none")}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={toolIcon(theme, "close")} alt="" />
+                Нет
+              </button>
+            </div>
+          </Panel>
+        </>
       )}
     </div>
   );

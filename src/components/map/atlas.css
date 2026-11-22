@@ -1,96 +1,127 @@
 /*
- * Panels, buttons and plaques in the look of the AtlasMap mod by erkinpaw (MIT,
- * https://github.com/erkinpaw/atlasmap): a parchment sheet with an inked border and gilded corners,
- * square icon buttons, a gold outline for the selected one. Textures: public/map/ui.
+ * The look of the AtlasMap mod by erkinpaw (MIT, https://github.com/erkinpaw/atlasmap), from Paper.java:
+ * parchment panels with an inked double border and gilded corners, square icon buttons with a drop
+ * shadow, text buttons on the darker sheet. Every size is in GUI pixels: --g is one GUI pixel on screen
+ * (Minecraft's GUI scale), so the proportions match the mod at any size. Textures: public/map/ui.
  */
 @layer components {
   .atlas {
-    --tex: 512px; /* a 256px texture shown at GUI scale 2 */
-    font-family: var(--font-modula), system-ui, sans-serif;
+    --g: 2px;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    overflow: hidden;
+    touch-action: none;
+    background: var(--cream);
     color: var(--ink);
+    font-family: var(--font-modula), system-ui, sans-serif;
+    font-size: calc(var(--g) * 10.5);
+    line-height: calc(var(--g) * 10);
+    -webkit-font-smoothing: none;
     image-rendering: pixelated;
   }
-
+  .atlas *,
+  .atlas *::before,
+  .atlas *::after {
+    box-sizing: border-box;
+  }
   .atlas img {
     image-rendering: pixelated;
+    -webkit-user-drag: none;
+    user-select: none;
+  }
+  .atlas button {
+    font: inherit;
+    color: inherit;
+    padding: 0;
+    margin: 0;
   }
 
+  /* Paper.panel: a shadow, the parchment, an outer ink line and an inner faint one */
   .atlas-panel {
-    position: relative;
-    background: var(--panel) 0 0 / var(--tex);
-    border: 2px solid var(--ink);
-    box-shadow:
-      inset 0 0 0 2px transparent,
-      inset 0 0 0 3px var(--ink-faint),
-      3px 3px 0 rgba(0, 0, 0, 0.35);
-    color: var(--ink);
-  }
-
-  .atlas[data-ornate="false"] .atlas-panel {
-    border: 1px solid var(--ink-faint);
-    box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.25);
-  }
-
-  /* gilded corner studs */
-  .atlas-stud {
     position: absolute;
-    width: 10px;
-    height: 10px;
-    box-sizing: border-box;
-    border: 2px solid var(--ink);
-    background:
-      linear-gradient(var(--gold-light), var(--gold-light)) center / 2px 2px
-        no-repeat,
-      var(--gold);
+    background: var(--panel) 0 0 / calc(var(--g) * 256);
+    border: var(--g) solid var(--ink);
+    box-shadow: calc(var(--g) * 2) calc(var(--g) * 2) 0 rgba(0, 0, 0, 0.33);
+  }
+  .atlas-panel::before {
+    content: "";
+    position: absolute;
+    inset: var(--g);
+    border: var(--g) solid var(--ink-faint);
     pointer-events: none;
   }
+  .atlas[data-ornate="false"] .atlas-panel {
+    border-color: var(--ink-line);
+  }
+  .atlas[data-ornate="false"] .atlas-panel::before,
   .atlas[data-ornate="false"] .atlas-stud {
     display: none;
   }
+
+  /* gilded corners: ink 5x5, gold 3x3, a light gold pixel in the middle */
+  .atlas-stud {
+    position: absolute;
+    width: calc(var(--g) * 5);
+    height: calc(var(--g) * 5);
+    border: var(--g) solid var(--ink);
+    background:
+      linear-gradient(var(--gold-light), var(--gold-light)) center / var(--g)
+        var(--g) no-repeat,
+      var(--gold);
+    pointer-events: none;
+    z-index: 1;
+  }
   .atlas-stud.tl {
-    top: -6px;
-    left: -6px;
+    left: calc(var(--g) * -2);
+    top: calc(var(--g) * -2);
   }
   .atlas-stud.tr {
-    top: -6px;
-    right: -6px;
+    right: calc(var(--g) * -2);
+    top: calc(var(--g) * -2);
   }
   .atlas-stud.bl {
-    bottom: -6px;
-    left: -6px;
+    left: calc(var(--g) * -2);
+    bottom: calc(var(--g) * -2);
   }
   .atlas-stud.br {
-    bottom: -6px;
-    right: -6px;
+    right: calc(var(--g) * -2);
+    bottom: calc(var(--g) * -2);
   }
 
-  /* the title plaque and other short labels */
-  .atlas-plaque {
-    padding: 4px 18px;
-    font-size: 13px;
-    line-height: 1.3;
-    text-align: center;
-    white-space: nowrap;
-  }
-
-  .atlas-btn {
-    position: relative;
-    display: inline-flex;
+  /* Paper.title: the text with a short ink dash on each side */
+  .atlas-title {
+    display: flex;
     align-items: center;
     justify-content: center;
-    box-sizing: border-box;
-    width: 40px;
-    height: 40px;
-    padding: 0;
-    cursor: pointer;
-    background: var(--panel) 0 0 / var(--tex);
-    border: 2px solid var(--ink);
-    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
+    gap: calc(var(--g) * 4);
+    white-space: nowrap;
     color: var(--ink);
   }
+  .atlas-title::before,
+  .atlas-title::after {
+    content: "";
+    width: calc(var(--g) * 8);
+    height: var(--g);
+    background: var(--ink-soft);
+    flex: none;
+  }
+
+  /* Paper.iconButton */
+  .atlas-btn {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: calc(var(--g) * var(--s, 20));
+    height: calc(var(--g) * var(--s, 20));
+    cursor: pointer;
+    background: var(--panel) var(--bx, 0) var(--by, 0) / calc(var(--g) * 256);
+    border: var(--g) solid var(--ink);
+    box-shadow: var(--g) var(--g) 0 rgba(0, 0, 0, 0.33);
+  }
   .atlas-btn img {
-    width: 32px;
-    height: 32px;
+    width: calc(var(--g) * var(--i, 16));
+    height: calc(var(--g) * var(--i, 16));
   }
   .atlas-btn:hover::after,
   .atlas-btn:focus-visible::after {
@@ -98,56 +129,109 @@
     position: absolute;
     inset: 0;
     background: rgba(255, 255, 255, 0.16);
+    border: var(--g) solid var(--ink-faint);
     pointer-events: none;
-  }
-  .atlas-btn:focus-visible {
-    outline: 2px solid var(--gold-light);
-    outline-offset: 1px;
   }
   .atlas-btn[aria-pressed="true"] {
     background-image: var(--panel-dark);
     border-color: var(--gold);
-    box-shadow:
-      inset 0 0 0 1px var(--gold-light),
-      2px 2px 0 rgba(0, 0, 0, 0.35);
+  }
+  .atlas-btn[aria-pressed="true"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: color-mix(in srgb, var(--gold) 19%, transparent);
+    border: var(--g) solid var(--gold-light);
+    pointer-events: none;
+  }
+  .atlas-btn:focus-visible,
+  .atlas-text-btn:focus-visible,
+  .atlas-theme:focus-visible {
+    outline: var(--g) solid var(--gold-light);
+    outline-offset: var(--g);
   }
 
-  /* text button */
-  .atlas-label-btn {
-    display: inline-flex;
+  /* Paper.button / iconTextButton: the darker sheet, an ink outline that turns gold on hover */
+  .atlas-text-btn {
+    position: relative;
+    display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 12px;
-    font-size: 12px;
+    justify-content: center;
+    gap: calc(var(--g) * 3);
+    height: calc(var(--g) * 16);
+    padding: 0 calc(var(--g) * 3);
     cursor: pointer;
-    background: var(--panel-dark) 0 0 / var(--tex);
-    border: 2px solid var(--ink);
-    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
-    color: var(--ink);
+    white-space: nowrap;
+    background: var(--panel-dark) 0 0 / calc(var(--g) * 256);
+    border: var(--g) solid var(--ink);
+    box-shadow: var(--g) var(--g) 0 rgba(0, 0, 0, 0.33);
   }
-  .atlas-label-btn:hover {
+  .atlas-text-btn:hover::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.19);
+    pointer-events: none;
+  }
+  .atlas-text-btn:hover {
     border-color: var(--gold);
   }
-  .atlas-label-btn[aria-pressed="true"] {
+  .atlas-text-btn img {
+    width: calc(var(--g) * 14);
+    height: calc(var(--g) * 14);
+  }
+
+  /* the dark strip behind the toolbar */
+  .atlas-toolbar {
+    position: absolute;
+    left: calc(var(--g) * 3);
+    top: calc(var(--g) * 3);
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--g) * 3);
+    padding: calc(var(--g) * 3);
+    background: rgba(0, 0, 0, 0.25);
+  }
+
+  /* a section heading in the settings: soft ink text and a faint rule */
+  .atlas-section {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--g) * 5);
+    color: var(--ink-soft);
+    margin-bottom: calc(var(--g) * 3);
+  }
+  .atlas-section::after {
+    content: "";
+    flex: 1;
+    height: var(--g);
+    background: var(--ink-faint);
+  }
+
+  /* a design tile in the settings */
+  .atlas-theme {
+    position: relative;
+    height: calc(var(--g) * 34);
+    cursor: pointer;
+    text-align: left;
+    background-size: calc(var(--g) * 256);
+    border: var(--g) solid var(--ink-half);
+    box-shadow: var(--g) var(--g) 0 rgba(0, 0, 0, 0.33);
+  }
+  .atlas-theme:hover {
     border-color: var(--gold);
-    box-shadow:
-      inset 0 0 0 1px var(--gold-light),
-      2px 2px 0 rgba(0, 0, 0, 0.35);
   }
-  .atlas-label-btn:focus-visible {
-    outline: 2px solid var(--gold-light);
-    outline-offset: 1px;
+  .atlas-theme[aria-pressed="true"] {
+    border-color: var(--gold-light);
+    outline: var(--g) solid var(--gold);
   }
 
-  /* the scale bar: a rule with end ticks */
-  .atlas-rule {
-    height: 6px;
-    border: 2px solid var(--ink);
-    border-top: none;
+  .atlas-dim {
+    position: absolute;
+    inset: 0;
   }
 
-  .atlas-status {
-    padding: 4px 12px;
-    font-size: 12px;
+  .atlas-hint {
+    color: var(--hint);
   }
 }

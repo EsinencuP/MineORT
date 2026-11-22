@@ -110,57 +110,115 @@ const fbm = (x: number, z: number) =>
 // vanilla map colours (MapColor), as the plugin reads them from the blocks
 const MAP = {
   grass: 0xff7fb238,
+  plant: 0xff007c00, // leaves, tall grass, ferns
   sand: 0xfff7e9a3,
   stone: 0xff707070,
   snow: 0xffffffff,
   dirt: 0xff976d4d,
   wood: 0xff8f7748,
-  plant: 0xff007c00,
+  terracotta: 0xff9f5224, // roofs
   water: 0xff4040ff,
 };
 
-// an island around (0, 0) of about 440 blocks across, with a lake, a river, a hill range and a village
+// A made-up island that reads like a real world on the map: grass speckled with plants, trees whose
+// crowns stand above the ground, beaches, a lake, a river, a hill range with snow and a small village.
 function column(x: number, z: number): Column {
   const d = Math.hypot(x - 20, z + 10) / 230;
   const land = 0.78 - d * 0.95 + (fbm(x, z) - 0.5) * 0.7;
-  const lake = Math.hypot(x + 70, z - 40) < 34 + noise(x / 9, z / 9) * 8;
-  const river =
-    Math.abs(z - (x * 0.35 + 30 + Math.sin(x / 31) * 14)) < 2.4 &&
-    x > -40 &&
-    x < 190;
+  const ground = Math.floor(
+    63 + Math.max(0, land) * 10 + (fbm(x + 50, z - 70) - 0.5) * 4,
+  );
+  const lake = Math.hypot(x + 70, z - 40) - (34 + noise(x / 9, z / 9) * 8);
+  const riverOff = Math.abs(z - (x * 0.35 + 30 + Math.sin(x / 31) * 14));
+  const river = riverOff < 2.6 && x > -40 && x < 190;
+  const speck = hash(x, z);
+
   if (land < 0.18) {
-    const deep = land < 0.04;
-    return {
-      height: deep ? 50 : 61,
-      color: MAP.water,
-      waterDepth: deep ? 12 : 3,
-    };
+    // the sea gets deeper away from the shore
+    const depth = Math.max(1, Math.min(30, Math.round((0.18 - land) * 60)));
+    return { height: 62, color: MAP.water, waterDepth: depth };
   }
-  if (lake || river) return { height: 62, color: MAP.water, waterDepth: 2 };
+  if (lake < 0) {
+    const depth = Math.max(1, Math.min(12, Math.round(-lake / 3)));
+    return { height: 62, color: MAP.water, waterDepth: depth };
+  }
+  if (river)
+    return { height: 62, color: MAP.water, waterDepth: riverOff < 1.2 ? 3 : 1 };
+
   const hill =
     Math.max(0, 1 - Math.hypot(x - 120, z + 90) / 95) * 46 +
     Math.max(0, fbm(x + 400, z) - 0.55) * 60;
-  const height = Math.floor(64 + land * 6 + hill);
-  const village =
-    Math.hypot(x - 10, z - 20) < 28 &&
-    hash(Math.floor(x / 6), Math.floor(z / 6)) > 0.45;
-  if (village) return { height, color: MAP.wood, waterDepth: 0 };
+  const height = ground + Math.floor(hill);
+
+  // village: scattered houses with roofs along one street
+  if (Math.hypot(x - 10, z - 20) < 30) {
+    const hx = Math.floor((x + 3) / 9);
+    const hz = Math.floor((z + 3) / 11);
+    const jx = Math.floor(hash(hx, hz + 40) * 3);
+    const jz = Math.floor(hash(hx + 40, hz) * 3);
+    const lx = ((((x + 3) % 9) + 9) % 9) - jx;
+    const lz = ((((z + 3) % 11) + 11) % 11) - jz;
+    const isHouse =
+      hash(hx, hz) > 0.45 && lx >= 1 && lx <= 5 && lz >= 1 && lz <= 4;
+    if (isHouse) {
+      const roof = lz === 2 || lz === 3 ? 1 : 0;
+      return {
+        height: height + 4 + roof,
+        color: lx === 1 || lx === 5 ? MAP.wood : MAP.terracotta,
+        waterDepth: 0,
+      };
+    }
+    if (Math.abs(z - 22 - Math.sin(x / 9) * 2) < 1.5)
+      return { height, color: MAP.dirt, waterDepth: 0 };
+  }
+  // a track across the island
   const track =
     Math.abs(z - 20 - (x - 10) * 0.12 - Math.sin(x / 20) * 3) < 1.2 &&
     x > -150 &&
     x < 150;
   if (track) return { height, color: MAP.dirt, waterDepth: 0 };
-  if (land < 0.24) return { height, color: MAP.sand, waterDepth: 0 };
-  if (hill > 26)
+
+  if (land < 0.235) return { height, color: MAP.sand, waterDepth: 0 };
+  if (hill > 40)
     return {
       height,
-      color: hill > 40 ? MAP.snow : MAP.stone,
+      color: speck > 0.15 ? MAP.snow : MAP.stone,
       waterDepth: 0,
     };
-  const forest = fbm(x + 900, z - 300) > 0.52;
+  if (hill > 24)
+    return {
+      height,
+      color: speck > 0.75 ? MAP.grass : MAP.stone,
+      waterDepth: 0,
+    };
+
+  // trees on a jittered grid; a forest holds them close together
+  const forest = fbm(x + 900, z - 300) > 0.5;
+  const cell = forest ? 5 : 13;
+  const cx = Math.floor(x / cell);
+  const cz = Math.floor(z / cell);
+  for (let oz = -1; oz <= 1; oz++) {
+    for (let ox = -1; ox <= 1; ox++) {
+      const gx = cx + ox;
+      const gz = cz + oz;
+      if (!forest && hash(gx * 7, gz * 3) > 0.35) continue;
+      const tx = gx * cell + Math.floor(hash(gx, gz + 99) * cell);
+      const tz = gz * cell + Math.floor(hash(gx + 99, gz) * cell);
+      const r = 1.6 + hash(gx + 5, gz + 7) * 1.3;
+      const dist = Math.hypot(x - tx, z - tz);
+      if (dist <= r) {
+        return {
+          height: height + 5 + Math.round((r - dist) * 1.2),
+          color: MAP.plant,
+          waterDepth: 0,
+        };
+      }
+    }
+  }
+  // grass with tall grass and ferns scattered in it
   return {
     height,
-    color: forest ? MAP.plant : MAP.grass,
+    color: speck < (forest ? 0.45 : 0.28) ? MAP.plant : MAP.grass,
     waterDepth: 0,
   };
 }

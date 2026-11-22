@@ -1,19 +1,19 @@
 import { worldToScreen, type Camera, type Viewport } from "../camera";
 import type { Dot } from "../players";
 
-const RED = "#9c3b2a";
-
 export type PinStyle = {
   ink: string;
   cream: string;
-  /** a CSS font family, already resolved */
-  family: string;
+  /** one GUI pixel in screen pixels */
+  g: number;
+  /** the mod's player arrow (tools/arrow.png), once it has loaded */
+  arrow: HTMLImageElement | null;
 };
 
 /**
- * Players as red arrows that point the way they face, with their name on a paper label, the way
- * AtlasMap draws the player and its markers. Only the position relative to the map shows; no
- * numbers. Staff get the exact coordinates appended; nobody else sees a number.
+ * Players the way AtlasMap draws the player: its arrow texture, 16 GUI pixels, turned by the yaw
+ * plus half a turn. Below it the name on a cream label with a soft ink outline, the way the mod
+ * labels its markers. Staff get the exact coordinates appended; nobody else sees a number.
  */
 export function drawPlayers(
   ctx: CanvasRenderingContext2D,
@@ -24,52 +24,44 @@ export function drawPlayers(
   staff: boolean,
   style: PinStyle,
 ) {
+  const { g } = style;
+  const s = 16 * g;
   ctx.save();
-  ctx.font = `12px ${style.family}`;
-  ctx.textBaseline = "middle";
-  ctx.lineJoin = "miter";
+  ctx.imageSmoothingEnabled = false;
+  ctx.textBaseline = "alphabetic";
   for (const d of dots) {
     if (d.dim !== dim) continue;
     const [fx, fy] = worldToScreen(cam, size, d.x, d.z);
-    const sx = Math.round(fx);
-    const sy = Math.round(fy);
-    if (sx < -80 || sy < -30 || sx > size.width + 80 || sy > size.height + 30)
+    if (
+      fx < -s * 6 ||
+      fy < -s ||
+      fx > size.width + s * 6 ||
+      fy > size.height + s * 2
+    )
       continue;
 
-    // Minecraft yaw 0 faces south (down the map) and 90 faces west, so the arrow, which points up
-    // when it is not turned, is rotated by half a turn plus the yaw.
-    ctx.save();
-    ctx.translate(sx, sy);
-    ctx.rotate(Math.PI + (d.facing * Math.PI) / 180);
-    ctx.beginPath();
-    ctx.moveTo(0, -10);
-    ctx.lineTo(7, 8);
-    ctx.lineTo(0, 4);
-    ctx.lineTo(-7, 8);
-    ctx.closePath();
-    ctx.fillStyle = RED;
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = style.ink;
-    ctx.stroke();
-    ctx.restore();
+    if (style.arrow) {
+      ctx.save();
+      ctx.translate(Math.round(fx), Math.round(fy));
+      ctx.rotate(((d.facing + 180) * Math.PI) / 180);
+      ctx.drawImage(style.arrow, -s / 2, -s / 2, s, s);
+      ctx.restore();
+    }
 
-    const label =
+    const name =
       staff && d.y !== undefined
-        ? `${d.name} · ${Math.round(d.tx)}, ${d.y}, ${Math.round(d.tz)}`
+        ? `${d.name}  ${Math.round(d.tx)}, ${d.y}, ${Math.round(d.tz)}`
         : d.name;
-    const w = Math.ceil(ctx.measureText(label).width);
-    const lx = Math.round(sx - w / 2);
-    const ly = sy + 16;
-    ctx.fillStyle = style.cream;
-    ctx.globalAlpha = 0.88;
-    ctx.fillRect(lx - 4, ly - 8, w + 8, 16);
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = RED;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(lx - 3.5, ly - 7.5, w + 7, 15);
+    const tw = Math.ceil(ctx.measureText(name).width);
+    const tx = Math.round(fx - tw / 2);
+    const ty = Math.round(fy - s / 2) + s + 2 * g;
+    ctx.fillStyle = style.cream + "d0";
+    ctx.fillRect(tx - 3 * g, ty - 2 * g, tw + 6 * g, 11 * g);
+    ctx.strokeStyle = style.ink + "80";
+    ctx.lineWidth = g;
+    ctx.strokeRect(tx - 2.5 * g, ty - 1.5 * g, tw + 5 * g, 10 * g);
     ctx.fillStyle = style.ink;
-    ctx.fillText(label, lx, ly + 1);
+    ctx.fillText(name, tx, ty + 7 * g);
   }
   ctx.restore();
 }

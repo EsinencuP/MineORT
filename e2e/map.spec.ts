@@ -27,7 +27,7 @@ test.describe("map with the atlas flag on", () => {
       page.getByRole("button", { name: "Приблизить" }),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Отдалить" })).toBeVisible();
-    await page.getByRole("button", { name: "Измерение" }).click();
+    await page.getByRole("button", { name: "Измерения" }).click();
     await expect(
       page.getByRole("button", { name: "Верхний мир" }),
     ).toHaveAttribute("aria-pressed", "true");
@@ -52,9 +52,9 @@ test.describe("map with the atlas flag on", () => {
     await page.getByRole("button", { name: "Отдалить" }).click();
     await canvas.focus();
     await page.keyboard.press("ArrowLeft");
-    await page.getByRole("button", { name: "Измерение" }).click();
+    await page.getByRole("button", { name: "Измерения" }).click();
     await page.getByRole("button", { name: "Незер" }).click();
-    await page.getByRole("button", { name: "Измерение" }).click();
+    await page.getByRole("button", { name: "Измерения" }).click();
     await expect(page.getByRole("button", { name: "Незер" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -64,14 +64,56 @@ test.describe("map with the atlas flag on", () => {
 
   test("a theme can be chosen and is remembered", async ({ page }) => {
     await page.goto("/map");
-    await page.getByRole("button", { name: "Оформление" }).click();
+    await page.getByRole("button", { name: "Настройки" }).click();
     await page.getByRole("button", { name: "Дерево" }).click();
     await page.reload();
-    await page.getByRole("button", { name: "Оформление" }).click();
+    await page.getByRole("button", { name: "Настройки" }).click();
     await expect(page.getByRole("button", { name: "Дерево" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
+  });
+
+  test("a line drawn with the editor stays after a reload", async ({
+    page,
+  }) => {
+    await page.goto("/map");
+    const canvas = page.getByRole("img", { name: /Карта мира/ });
+    await page.getByRole("button", { name: /Редактор/ }).click();
+    await page.getByRole("button", { name: "Прямая линия" }).click();
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      box.x + box.width / 2 + 120,
+      box.y + box.height / 2 + 40,
+    );
+    await page.mouse.up();
+    const saved = await page.evaluate(() =>
+      JSON.parse(
+        localStorage.getItem("mineort.map.drawings.overworld") ?? "[]",
+      ),
+    );
+    expect(saved).toHaveLength(1);
+    expect(saved[0].type).toBe("line");
+    await page.reload();
+    expect(
+      await page.evaluate(() =>
+        JSON.parse(
+          localStorage.getItem("mineort.map.drawings.overworld") ?? "[]",
+        ),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("the ruler shows its bar and the close button leads back to the site", async ({
+    page,
+  }) => {
+    await page.goto("/map");
+    await page.getByRole("button", { name: /Линейка/ }).click();
+    await expect(page.getByText(/ЛКМ — точка/)).toBeVisible();
+    await page.getByRole("link", { name: "Закрыть карту" }).click();
+    await expect(page).toHaveURL(/\/$/);
   });
 
   test("a guest gets no live players and is offered a sign-in", async ({
