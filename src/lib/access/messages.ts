@@ -122,6 +122,16 @@ export const ACCESS_MESSAGES: Record<string, string> = {
   totp_not_configured: "Двухфакторная защита ещё не настроена.",
   confirm_required: "Подтвердите удаление, отметив флажок.",
   unknown: "Что-то пошло не так. Попробуйте ещё раз.",
+  marker_forbidden: "Ставить метки могут только участники сервера.",
+  marker_invalid:
+    "Проверьте название (до 60 символов), иконку и видимость метки.",
+  marker_rate_limited: "Слишком много новых меток за час. Попробуйте позже.",
+  marker_limit: "У вас уже 100 меток. Удалите ненужные, чтобы поставить новую.",
+  marker_not_found: "Метка не найдена.",
+  marker_no_guild: "Чтобы показать метку гильдии, нужно состоять в гильдии.",
+  label_forbidden: "Ориентиры ставит только администрация.",
+  report_own_marker: "Нельзя пожаловаться на свою метку.",
+  report_marker_duplicate: "Вы уже отправили жалобу на эту метку.",
 };
 
 export const messageFor = (code: string | null | undefined) =>

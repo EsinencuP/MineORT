@@ -40,6 +40,7 @@
   /* Paper.panel: a shadow, the parchment, an outer ink line and an inner faint one */
   .atlas-panel {
     position: absolute;
+    isolation: isolate; /* the gilded corners stay inside their own panel */
     background: var(--panel) 0 0 / calc(var(--g) * 256);
     border: var(--g) solid var(--ink);
     box-shadow: calc(var(--g) * 2) calc(var(--g) * 2) 0 rgba(0, 0, 0, 0.33);
@@ -233,5 +234,96 @@
 
   .atlas-hint {
     color: var(--hint);
+  }
+
+  /* Paper.inset: a sunken field for text and icons */
+  .atlas-inset {
+    background: rgba(255, 255, 255, 0.19);
+    border-style: solid;
+    border-width: var(--g);
+    border-color: var(--ink-soft) rgba(255, 255, 255, 0.31)
+      rgba(255, 255, 255, 0.31) var(--ink-soft);
+  }
+  .atlas-input {
+    min-width: 0;
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--ink);
+    font: inherit;
+  }
+  textarea.atlas-input {
+    background: rgba(255, 255, 255, 0.19);
+  }
+  .atlas-input::placeholder {
+    color: var(--hint);
+  }
+  .atlas-inset:focus-within {
+    border-color: var(--gold) var(--gold-light) var(--gold-light) var(--gold);
+  }
+
+  /* Paper.separator: a faint rule with a small ink diamond in the middle */
+  .atlas-sep {
+    position: relative;
+    height: var(--g);
+    background: var(--ink-faint);
+    flex: none;
+  }
+  .atlas-sep::after {
+    content: "";
+    position: absolute;
+    left: calc(50% - var(--g) * 1.5);
+    top: calc(var(--g) * -1);
+    width: calc(var(--g) * 3);
+    height: calc(var(--g) * 3);
+    background: var(--ink-soft);
+  }
+
+  .atlas-scroll {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ink-soft) var(--ink-faint);
+  }
+
+  /* a row of the marker list */
+  .atlas-row {
+    cursor: pointer;
+    color: var(--ink);
+  }
+  .atlas-row:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
+  .atlas-row[aria-current="true"] {
+    background: color-mix(in srgb, var(--gold) 31%, transparent);
+    outline: var(--g) solid var(--gold);
+    outline-offset: calc(var(--g) * -1);
+  }
+
+  /* a cell of the icon chooser */
+  .atlas-cell {
+    cursor: pointer;
+    border: var(--g) solid transparent;
+  }
+  .atlas-cell:hover {
+    background: rgba(255, 255, 255, 0.19);
+    border-color: var(--ink-soft);
+  }
+  .atlas-cell[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--gold) 31%, transparent);
+    border-color: var(--gold);
+  }
+
+  /* a colour of the 60-ink palette */
+  .atlas-swatch {
+    width: calc(var(--g) * 11);
+    height: calc(var(--g) * 11);
+    cursor: pointer;
+    border: var(--g) solid var(--ink);
+  }
+  .atlas-swatch:hover,
+  .atlas-swatch[aria-pressed="true"] {
+    outline: var(--g) solid var(--gold-light);
+    box-shadow: inset 0 0 0 var(--g) var(--gold);
   }
 }

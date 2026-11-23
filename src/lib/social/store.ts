@@ -40,7 +40,7 @@ async function withinLimit(key: string, windowSeconds: number, limit: number) {
   return data === true;
 }
 
-async function authorsOf(ids: string[]) {
+export async function authorsOf(ids: string[]) {
   const map = new Map<
     string,
     { id: string; name: string; nick: string | null }
@@ -432,6 +432,22 @@ export async function listOpenReports() {
         .map((r) => r.target_id as string),
     ),
   ];
+  const markerIds = [
+    ...new Set(
+      reports
+        .filter((r) => r.target_type === "marker")
+        .map((r) => r.target_id as string),
+    ),
+  ];
+  const { data: markers } = markerIds.length
+    ? await db()
+        .from("map_markers")
+        .select(
+          "id, author_id, name, description, moderation_status, deleted_at",
+        )
+        .in("id", markerIds)
+    : { data: [] };
+  const byMarker = new Map((markers ?? []).map((m) => [m.id as string, m]));
   const [{ data: posts }, { data: media }, { data: captions }] =
     await Promise.all([
       postIds.length
@@ -460,6 +476,7 @@ export async function listOpenReports() {
     ...new Set([
       ...(posts ?? []).map((p) => p.author_id as string),
       ...(media ?? []).map((m) => m.uploader_id as string),
+      ...(markers ?? []).map((m) => m.author_id as string),
     ]),
   ]);
   const byPost = new Map((posts ?? []).map((p) => [p.id as string, p]));
@@ -473,6 +490,27 @@ export async function listOpenReports() {
       reason: r.reason as string,
       createdAt: r.created_at as string,
     };
+    if (r.target_type === "marker") {
+      const m = byMarker.get(r.target_id as string);
+      return {
+        ...base,
+        kind: "marker" as const,
+        postId: r.target_id as string,
+        mediaId: null as string | null,
+        postBody: m
+          ? [m.name as string, m.description as string]
+              .filter(Boolean)
+              .join(" — ")
+          : "",
+        postKind: "marker",
+        postState: !m
+          ? "gone"
+          : m.deleted_at
+            ? "deleted"
+            : (m.moderation_status as string),
+        author: m ? (authors.get(m.author_id as string)?.name ?? "Игрок") : "—",
+      };
+    }
     if (r.target_type === "media") {
       const m = byMedia.get(r.target_id as string);
       return {
@@ -526,10 +564,23 @@ export async function decideReport(
     .maybeSingle();
   if (!rep) throw new SocialError("report_not_found");
   if (rep.status !== "open") throw new SocialError("report_closed");
-  const targetType = rep.target_type as "post" | "media";
+  const targetType = rep.target_type as "post" | "media" | "marker";
   const targetId = rep.target_id as string;
 
-  if (targetType === "media") {
+  if (targetType === "marker") {
+    if (decision !== "dismiss")
+      await db()
+        .from("map_markers")
+        .update(
+          decision === "hide"
+            ? { moderation_status: "hidden", moderation_reason: reason }
+            : {
+                deleted_at: new Date().toISOString(),
+                moderation_reason: reason,
+              },
+        )
+        .eq("id", targetId);
+  } else if (targetType === "media") {
     if (decision !== "dismiss")
       await moderateMedia(viewer, targetId, decision, reason).catch((e) => {
         if (!(e instanceof SocialError && e.code === "media_not_found"))

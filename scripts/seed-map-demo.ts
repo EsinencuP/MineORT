@@ -29,6 +29,18 @@ const { data: found } = await db
 const must = (what: string, error: { message: string } | null) => {
   if (error) throw new Error(`${what}: ${error.message}`);
 };
+// The demo markers belong to a made-up author, so they can be removed without touching real ones.
+const DEMO_AUTHOR_TG = 9990000099;
+async function demoAuthor(): Promise<string> {
+  const { data, error } = await db.rpc("upsert_telegram_user", {
+    p_telegram_id: DEMO_AUTHOR_TG,
+    p_username: "map_demo",
+    p_display_name: "Картограф",
+  });
+  if (error) throw new Error(`demo author: ${error.message}`);
+  return (data as { user_id: string }[])[0].user_id;
+}
+
 if (process.argv.includes("--clean")) {
   if (found) {
     // the whitelist queue also queued actions for this server while it existed
@@ -70,6 +82,15 @@ if (process.argv.includes("--clean")) {
       (await db.from("bridge_servers").delete().eq("id", found.id)).error,
     );
   }
+  must(
+    "markers",
+    (
+      await db
+        .from("map_markers")
+        .delete()
+        .eq("author_id", await demoAuthor())
+    ).error,
+  );
   console.log("cleaned");
   process.exit(0);
 }
@@ -255,3 +276,59 @@ for (let cz = -R; cz < R; cz++) {
 }
 await flush();
 console.log("seeded", sent, "chunks for server", serverId);
+
+// public, approved markers and a few place names over the island, as players would leave them
+const author = await demoAuthor();
+must(
+  "old markers",
+  (await db.from("map_markers").delete().eq("author_id", author)).error,
+);
+const markers: [string, string, string | null, number, number, string][] = [
+  ["Деревня", "house", null, 12, 22, "Дома у реки, рынок по субботам."],
+  ["Мельница", "windmill", null, -48, 64, ""],
+  ["Крепость", "castle", null, 118, -36, "Стены ещё строятся."],
+  ["Портал в Незер", "portal", null, 64, 108, ""],
+  ["Клад", "chest", "#e0b03a", -118, -58, "Под старым дубом."],
+  ["Порт", "anchor", null, -150, 58, ""],
+  ["Логово криперов", "creeper", "#4e8a34", 160, 88, "Ходить только днём."],
+  ["Точка сбора", "star", "#d35a2a", 2, -96, "Встречаемся здесь по вечерам."],
+  ["Шахта", "mine", null, 136, -98, "Алмазы глубоко внизу."],
+];
+const labels: [string, number, number][] = [
+  ["Снежный хребет", 120, -120],
+  ["Тихое озеро", -72, 40],
+];
+must(
+  "markers",
+  (
+    await db.from("map_markers").insert([
+      ...markers.map(([name, icon, color, x, z, description]) => ({
+        author_id: author,
+        kind: "point",
+        dim: "overworld",
+        x,
+        z,
+        name,
+        description,
+        icon,
+        color,
+        visibility: "public",
+        moderation_status: "approved",
+      })),
+      ...labels.map(([name, x, z]) => ({
+        author_id: author,
+        kind: "label",
+        dim: "overworld",
+        x,
+        z,
+        name,
+        description: "",
+        icon: "pin",
+        color: null,
+        visibility: "public",
+        moderation_status: "approved",
+      })),
+    ])
+  ).error,
+);
+console.log("seeded", markers.length + labels.length, "markers");

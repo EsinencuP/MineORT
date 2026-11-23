@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { decideMarkerAction } from "@/app/actions/map";
 import { decideReportAction } from "@/app/actions/social";
+import { isEnabled } from "@/lib/flags";
+import { listPendingMarkers } from "@/lib/map/markers";
 import { requireStaff } from "@/lib/auth/guards";
 import { listOpenReports } from "@/lib/social/store";
 import { Button } from "@/components/ui/button";
@@ -23,13 +26,17 @@ export default async function ModerationPage({
   await requireStaff();
   const sp = await searchParams;
   const reports = await listOpenReports();
+  const pending = isEnabled("ff_p1c_atlas") ? await listPendingMarkers() : [];
   return (
     <>
       <h1 className="mb-4 text-2xl font-bold">Жалобы</h1>
       <Notice
         error={sp.error}
         ok={sp.ok}
-        okTexts={{ decided: "Решение сохранено." }}
+        okTexts={{
+          decided: "Решение сохранено.",
+          marker_decided: "Решение по метке сохранено.",
+        }}
       />
       {reports.length === 0 ? (
         <EmptyState
@@ -45,7 +52,9 @@ export default async function ModerationPage({
                   <StatusBadge tone="warn">
                     {r.kind === "media"
                       ? "Жалоба на изображение"
-                      : "Жалоба на публикацию"}
+                      : r.kind === "marker"
+                        ? "Жалоба на метку карты"
+                        : "Жалоба на публикацию"}
                   </StatusBadge>
                   <span className="text-ink-muted">
                     {new Date(r.createdAt).toLocaleString("ru-RU")} · автор:{" "}
@@ -118,6 +127,76 @@ export default async function ModerationPage({
             </li>
           ))}
         </ul>
+      )}
+      {pending.length > 0 && (
+        <section className="mt-8" aria-labelledby="pending-markers">
+          <h2 id="pending-markers" className="mb-3 text-xl font-bold">
+            Публичные метки на проверке
+          </h2>
+          <ul className="flex flex-col gap-3">
+            {pending.map((m) => (
+              <li key={m.id}>
+                <Card className="flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/map/ui/markers/${m.icon}.png`}
+                      alt=""
+                      className="size-8 [image-rendering:pixelated]"
+                    />
+                    <strong>{m.name}</strong>
+                    <span className="text-ink-muted">
+                      {m.dim === "nether" ? "Незер" : "Верхний мир"} ·{" "}
+                      {new Date(m.createdAt).toLocaleString("ru-RU")} · автор:{" "}
+                      {m.author}
+                    </span>
+                  </div>
+                  {m.description && (
+                    <p className="border-line rounded-xl border p-3 break-words whitespace-pre-line">
+                      {m.description}
+                    </p>
+                  )}
+                  <a
+                    href={`/map?m=${m.id}`}
+                    className="text-accent w-fit text-sm underline"
+                  >
+                    Открыть на карте
+                  </a>
+                  <form
+                    action={decideMarkerAction}
+                    className="flex flex-col gap-3"
+                  >
+                    <input type="hidden" name="marker_id" value={m.id} />
+                    <label
+                      className="text-sm font-medium"
+                      htmlFor={`m-${m.id}`}
+                    >
+                      Комментарий (обязателен для «Скрыть»)
+                    </label>
+                    <input
+                      id={`m-${m.id}`}
+                      name="note"
+                      className="bg-paper text-ink border-line min-h-11 rounded-xl border px-3"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="submit" name="decision" value="approve">
+                        Одобрить
+                      </Button>
+                      <Button
+                        type="submit"
+                        name="decision"
+                        value="hide"
+                        variant="secondary"
+                      >
+                        Скрыть
+                      </Button>
+                    </div>
+                  </form>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </>
   );

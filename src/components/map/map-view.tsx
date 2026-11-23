@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./atlas.css";
+import { IconButton, Panel, TB } from "./atlas-ui";
 import {
   DEFAULT_THEME,
   THEMES,
@@ -40,23 +41,58 @@ import {
   type DrawTool,
   type Stroke,
 } from "./drawing";
+import {
+  ColorPicker,
+  IconPicker,
+  MarkerCard,
+  MarkerEditor,
+  MarkerList,
+  ReportDialog,
+  SORTS,
+  sortMarkers,
+  type Draft,
+  type SortId,
+} from "./markers";
 import { PlayerFeed, type FeedState } from "./players";
+import { drawMarkers, markerAt, type MapMarker } from "./render/markers";
 import { drawPlayers } from "./render/players";
 
 type Dim = "overworld" | "nether";
 type Ref = { rx: number; rz: number; version: number };
 type Loaded = { version: number; img: HTMLImageElement; used: number };
 type Status = "loading" | "empty" | "ready" | "error";
-type Overlay = "none" | "dims" | "settings" | "confirm";
+type Overlay =
+  | "none"
+  | "dims"
+  | "settings"
+  | "confirm"
+  | "icons"
+  | "colors"
+  | "report"
+  | "delete-marker";
+type Me = {
+  signedIn: boolean;
+  canCreate: boolean;
+  canLabel: boolean;
+  canModerate: boolean;
+  inGuild: boolean;
+};
 type Tool = "none" | "ruler" | "draw";
 
-const TB = 20;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 16;
 const REFRESH_MS = 30_000;
 const MAX_TILES = 48;
 const THEME_KEY = "mineort.map.theme";
 const PREFS_KEY = "mineort.map.prefs";
+const HIDDEN_KEY = "mineort.map.hiddenMarkers";
+const NO_ONE: Me = {
+  signedIn: false,
+  canCreate: false,
+  canLabel: false,
+  canModerate: false,
+  inGuild: false,
+};
 const DIM_NAMES: Record<Dim, string> = {
   overworld: "Верхний мир",
   nether: "Незер",
@@ -68,65 +104,6 @@ const guiScale = (w: number, h: number) =>
   w >= 1600 && h >= 900 ? 3 : w >= 640 ? 2 : 1.5;
 
 const px = (n: number) => `${n}px`;
-
-function Panel({
-  className = "",
-  children,
-  style,
-  ...rest
-}: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div className={`atlas-panel ${className}`} style={style} {...rest}>
-      <i className="atlas-stud tl" />
-      <i className="atlas-stud tr" />
-      <i className="atlas-stud bl" />
-      <i className="atlas-stud br" />
-      {children}
-    </div>
-  );
-}
-
-function IconButton({
-  theme,
-  icon,
-  label,
-  pressed,
-  onClick,
-  size = TB,
-  iconSize,
-  offset = 0,
-}: {
-  theme: AtlasTheme;
-  icon: string;
-  label: string;
-  pressed?: boolean;
-  onClick: () => void;
-  size?: number;
-  iconSize?: number;
-  offset?: number;
-}) {
-  const style = {
-    "--s": size,
-    "--i": iconSize ?? (size >= 20 ? 16 : size - 4),
-    // every button shows another part of the sheet, as the mod's tiling by position does
-    "--bx": `calc(var(--g) * ${-offset * 37})`,
-    "--by": `calc(var(--g) * ${-offset * 61})`,
-  } as React.CSSProperties;
-  return (
-    <button
-      type="button"
-      className="atlas-btn"
-      aria-label={label}
-      title={label}
-      aria-pressed={pressed}
-      onClick={onClick}
-      style={style}
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={toolIcon(theme, icon)} alt="" draggable={false} />
-    </button>
-  );
-}
 
 export function MapView() {
   const root = useRef<HTMLDivElement>(null);
@@ -159,7 +136,11 @@ export function MapView() {
   const [drawTool, setDrawTool] = useState<DrawTool>("pen");
   const [colorIdx, setColorIdx] = useState(20);
   const [widthIdx, setWidthIdx] = useState(1);
-  const [prefs, setPrefs] = useState({ players: true, drawings: true });
+  const [prefs, setPrefs] = useState({
+    players: true,
+    drawings: true,
+    markers: true,
+  });
   const [scaleInfo, setScaleInfo] = useState({ px: 40, blocks: 20 });
   const [cursor, setCursor] = useState<[number, number] | null>(null);
   const [rulerText, setRulerText] = useState<string[]>([]);
@@ -179,6 +160,32 @@ export function MapView() {
   const undo = useRef<(() => void)[]>([]);
   const ruler = useRef<[number, number][]>([]);
   const mouse = useRef<[number, number] | null>(null);
+
+  // markers
+  const [markers, setMarkersState] = useState<MapMarker[]>([]);
+  const [me, setMe] = useState<Me>(NO_ONE);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [panel, setPanel] = useState<"none" | "view" | "edit">("none");
+  const [draft, setDraftState] = useState<Draft | null>(null);
+  const [listOpen, setListOpen] = useState(false);
+  const [sort, setSort] = useState<SortId>("name");
+  const [query, setQuery] = useState("");
+  const [hidden, setHiddenState] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [markerError, setMarkerError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [colorFor, setColorFor] = useState<string | null>(null);
+  const markersRef = useRef<MapMarker[]>([]);
+  const selectedRef = useRef<string | null>(null);
+  const hoveredRef = useRef<string | null>(null);
+  const hiddenRef = useRef<Set<string>>(new Set());
+  const draftRef = useRef<Draft | null>(null);
+  const longPress = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const requestPaintRef = useRef<() => void>(() => {});
+  // the middle of the view, for distances in the marker list; kept in state so the list re-renders
+  const [viewMid, setViewMid] = useState<[number, number]>([0, 0]);
 
   const strokesOf = useCallback((d: Dim) => {
     let list = strokes.current.get(d);
@@ -345,6 +352,42 @@ export function MapView() {
       }
     }
 
+    // MapView.drawMarkers: the markers of this dimension that are not hidden; the selected one always
+    const sel = selectedRef.current;
+    const d0 = draftRef.current;
+    const shown = markersRef.current.filter(
+      (m) =>
+        m.dim === dimRef.current &&
+        m.id !== d0?.id &&
+        (m.id === sel ||
+          (prefsRef.current.markers && !hiddenRef.current.has(m.id))),
+    );
+    if (d0 && d0.dim === dimRef.current)
+      shown.push({
+        ...d0,
+        id: d0.id ?? "draft",
+        status: "approved",
+        author: "",
+        mine: true,
+        canEdit: true,
+        canDelete: true,
+        createdAt: "",
+      });
+    drawMarkers(ctx, c, size.current, shown, {
+      g: gp,
+      family: getComputedStyle(el).fontFamily,
+      selected: d0 ? (d0.id ?? "draft") : sel,
+      hovered: hoveredRef.current,
+      colors: {
+        ink: t.ink,
+        inkSoft: t.inkSoft,
+        cream: t.cream,
+        gold: t.accent,
+        goldLight: t.accentLight,
+      },
+      onLoad: () => requestPaintRef.current(),
+    });
+
     if (feed.current && prefsRef.current.players)
       drawPlayers(
         ctx,
@@ -362,6 +405,9 @@ export function MapView() {
     queued.current = true;
     requestAnimationFrame(paint);
   }, [paint]);
+  useEffect(() => {
+    requestPaintRef.current = requestPaint;
+  }, [requestPaint]);
 
   /** The status bar follows the zoom: the shortest round distance at least 40 GUI pixels long. */
   const syncScale = useCallback(() => {
@@ -427,6 +473,11 @@ export function MapView() {
   const moved = useCallback(() => {
     requestPaint();
     syncScale();
+    const mid: [number, number] = [
+      Math.round(cam.current.x / 8) * 8,
+      Math.round(cam.current.z / 8) * 8,
+    ];
+    setViewMid((v) => (v[0] === mid[0] && v[1] === mid[1] ? v : mid));
     clearTimeout(fetchTimer.current);
     fetchTimer.current = setTimeout(loadVisible, 120);
   }, [requestPaint, syncScale, loadVisible]);
@@ -461,8 +512,26 @@ export function MapView() {
     moved();
   }, [moved]);
 
+  /** The markers of the current dimension that this viewer may see. */
+  const loadMarkers = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/map/markers?dim=${dimRef.current}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const body = (await res.json()) as { markers: MapMarker[]; me: Me };
+      markersRef.current = body.markers;
+      setMarkersState(body.markers);
+      setMe(body.me);
+      requestPaint();
+    } catch {
+      /* markers come back with the next refresh */
+    }
+  }, [requestPaint]);
+
   const refresh = useCallback(
     async (first: boolean) => {
+      void loadMarkers();
       try {
         const res = await fetch(`/api/map/regions?dim=${dimRef.current}`);
         if (!res.ok) throw new Error(`index ${res.status}`);
@@ -479,7 +548,7 @@ export function MapView() {
         setStatus("error");
       }
     },
-    [center, loadVisible, requestPaint],
+    [center, loadVisible, loadMarkers, requestPaint],
   );
 
   const setTool = (t: Tool) => {
@@ -610,8 +679,15 @@ export function MapView() {
           typeof p.players === "boolean" &&
           typeof p.drawings === "boolean"
         ) {
-          prefsRef.current = p;
-          setPrefs(p);
+          const next = { markers: true, ...p };
+          prefsRef.current = next;
+          setPrefs(next);
+        }
+        const h = JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? "[]");
+        if (Array.isArray(h)) {
+          const set = new Set<string>(h.filter((x) => typeof x === "string"));
+          hiddenRef.current = set;
+          setHiddenState(set);
         }
       } catch {
         /* storage can be blocked; the defaults stay */
@@ -664,6 +740,227 @@ export function MapView() {
     return () => cv.removeEventListener("wheel", onWheel);
   }, [zoomBy]);
 
+  // ------------------------------------------------------------------ markers
+
+  const setMarkers = (list: MapMarker[]) => {
+    markersRef.current = list;
+    setMarkersState(list);
+    requestPaint();
+  };
+  const select = (id: string | null) => {
+    selectedRef.current = id;
+    setSelectedId(id);
+    requestPaint();
+  };
+  const setDraft = (d: Draft | null) => {
+    draftRef.current = d;
+    setDraftState(d);
+    requestPaint();
+  };
+  const flash = (text: string) => {
+    setToast(text);
+    setTimeout(() => setToast((t) => (t === text ? null : t)), 3500);
+  };
+  const closePanel = () => {
+    setPanel("none");
+    setDraft(null);
+    select(null);
+    setMarkerError(null);
+  };
+
+  /** MapScreen.openView: the card of a marker, the map centred on it when asked. */
+  const openView = (m: MapMarker, centre: boolean) => {
+    setDraft(null);
+    setMarkerError(null);
+    select(m.id);
+    setPanel("view");
+    if (size.current.width / gRef.current < 420) setListOpen(false);
+    if (centre) {
+      if (m.dim !== dimRef.current) {
+        setStatus("loading");
+        setDim(m.dim);
+      }
+      cam.current = { ...cam.current, x: m.x + 0.5, z: m.z + 0.5 };
+      moved();
+    }
+  };
+
+  /** MapScreen.createMarker: a new marker where the map was right-clicked, opened in the editor. */
+  const startMarker = (wx: number, wz: number) => {
+    if (!me.canCreate) {
+      flash(
+        me.signedIn
+          ? "Метки ставят участники сервера."
+          : "Войдите, чтобы ставить метки.",
+      );
+      return;
+    }
+    select(null);
+    setMarkerError(null);
+    setDraft({
+      id: null,
+      kind: "point",
+      dim: dimRef.current,
+      x: Math.floor(wx),
+      z: Math.floor(wz),
+      y: null,
+      name: `Метка ${markersRef.current.filter((m) => m.mine).length + 1}`,
+      description: "",
+      icon: "pin",
+      color: null,
+      visibility: "private",
+    });
+    setPanel("edit");
+  };
+
+  const editMarker = (m: MapMarker) => {
+    setMarkerError(null);
+    setDraft({
+      id: m.id,
+      kind: m.kind,
+      dim: m.dim,
+      x: m.x,
+      z: m.z,
+      y: m.y ?? null,
+      name: m.name,
+      description: m.description,
+      icon: m.icon,
+      color: m.color,
+      visibility: m.visibility,
+    });
+    setPanel("edit");
+  };
+
+  async function call(
+    url: string,
+    method: string,
+    body?: unknown,
+  ): Promise<{ ok: boolean; data: Record<string, unknown> }> {
+    setBusy(true);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers:
+          body === undefined
+            ? undefined
+            : { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+      return { ok: res.ok, data };
+    } catch {
+      return {
+        ok: false,
+        data: { message: "Нет связи с сайтом. Попробуйте ещё раз." },
+      };
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const saveDraft = async () => {
+    const d = draftRef.current;
+    if (!d) return;
+    const { id, ...fields } = d;
+    const r = id
+      ? await call(`/api/map/markers/${id}`, "PATCH", fields)
+      : await call("/api/map/markers", "POST", fields);
+    if (!r.ok) {
+      setMarkerError(String(r.data.message ?? "Не удалось сохранить метку."));
+      return;
+    }
+    const saved = r.data.marker as MapMarker;
+    setMarkers([...markersRef.current.filter((m) => m.id !== saved.id), saved]);
+    setDraft(null);
+    select(saved.id);
+    setPanel("view");
+    if (saved.status === "pending")
+      flash("Метка отправлена на проверку модератору.");
+  };
+
+  const deleteSelected = async () => {
+    const id = selectedRef.current ?? draftRef.current?.id;
+    setOverlay("none");
+    if (!id) return;
+    const r = await call(`/api/map/markers/${id}`, "DELETE");
+    if (!r.ok) {
+      flash(String(r.data.message ?? "Не удалось удалить метку."));
+      return;
+    }
+    setMarkers(markersRef.current.filter((m) => m.id !== id));
+    closePanel();
+  };
+
+  const sendReport = async (reason: string) => {
+    const id = selectedRef.current;
+    if (!id) return;
+    const r = await call(`/api/map/markers/${id}/report`, "POST", { reason });
+    if (!r.ok) {
+      setMarkerError(String(r.data.message ?? "Не удалось отправить жалобу."));
+      return;
+    }
+    setOverlay("none");
+    setMarkerError(null);
+    flash("Жалоба отправлена модераторам.");
+  };
+
+  /** "Hide" in the list and on the card hides a marker in this browser only, as the mod does. */
+  const setHidden = (next: Set<string>) => {
+    hiddenRef.current = next;
+    setHiddenState(next);
+    try {
+      localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next]));
+    } catch {
+      /* kept until the page closes */
+    }
+    requestPaint();
+  };
+  const toggleHidden = (id: string) => {
+    const next = new Set(hiddenRef.current);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setHidden(next);
+  };
+  const toggleAllHidden = () => {
+    const inDim = markersRef.current.filter((m) => m.dim === dimRef.current);
+    const anyVisible = inDim.some((m) => !hiddenRef.current.has(m.id));
+    const next = new Set(hiddenRef.current);
+    for (const m of inDim) {
+      if (anyVisible) next.add(m.id);
+      else next.delete(m.id);
+    }
+    setHidden(next);
+  };
+
+  // /map?m=<id> opens the map on a marker once the map is there (a link from moderation or a chat)
+  const linked = useRef(false);
+  const openLinked = useRef<(m: MapMarker) => void>(() => {});
+  useEffect(() => {
+    openLinked.current = (m) => openView(m, true);
+  });
+  useEffect(() => {
+    if (linked.current || (status !== "ready" && status !== "empty")) return;
+    linked.current = true;
+    const id = new URLSearchParams(window.location.search).get("m");
+    if (!id) return;
+    void fetch(`/api/map/markers/${encodeURIComponent(id)}`, {
+      cache: "no-store",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { marker: MapMarker } | null) => {
+        if (!body) return;
+        const m = body.marker;
+        if (!markersRef.current.some((x) => x.id === m.id))
+          markersRef.current = [...markersRef.current, m];
+        setMarkersState(markersRef.current);
+        openLinked.current(m);
+      })
+      .catch(() => {});
+  }, [status]);
+
   // ------------------------------------------------------------------ pointer input
 
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -695,6 +992,35 @@ export function MapView() {
     }
   };
 
+  const visibleMarkers = () =>
+    markersRef.current.filter(
+      (m) =>
+        m.dim === dimRef.current &&
+        (m.id === selectedRef.current ||
+          (prefsRef.current.markers && !hiddenRef.current.has(m.id))),
+    );
+
+  /** MapScreen.onMapClick: a marker opens its card; a right click on bare map puts a marker. */
+  function mapClick(mx: number, my: number, button: number) {
+    const hit = markerAt(
+      cam.current,
+      size.current,
+      visibleMarkers(),
+      mx,
+      my,
+      gRef.current,
+    );
+    if (hit) {
+      openView(hit, false);
+      return;
+    }
+    if (button === 2) {
+      if (panel === "edit") return;
+      const [wx, wz] = screenToWorld(cam.current, size.current, mx, my);
+      startMarker(wx, wz);
+    } else if (panel !== "none") closePanel();
+  }
+
   const onPointerDown = (e: React.PointerEvent) => {
     e.currentTarget.setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -707,6 +1033,16 @@ export function MapView() {
       cam: cam.current,
       dragging: false,
     };
+    clearTimeout(longPress.current);
+    // a long press on a touch screen does what a right click does
+    if (e.pointerType === "touch" && toolRef.current === "none") {
+      longPress.current = setTimeout(() => {
+        const p = press.current;
+        if (!p || p.dragging || pointers.current.size !== 1) return;
+        p.dragging = true; // the release is no longer a tap
+        mapClick(p.x, p.y, 2);
+      }, 550);
+    }
     if (
       toolRef.current === "draw" &&
       e.button === 0 &&
@@ -738,7 +1074,23 @@ export function MapView() {
     }
     const prev = pointers.current.get(e.pointerId);
     if (!prev) {
-      if (toolRef.current !== "none") requestPaint();
+      const hit =
+        toolRef.current === "none"
+          ? markerAt(
+              cam.current,
+              size.current,
+              visibleMarkers(),
+              mx,
+              my,
+              gRef.current,
+            )
+          : null;
+      if ((hit?.id ?? null) !== hoveredRef.current) {
+        hoveredRef.current = hit?.id ?? null;
+        e.currentTarget.setAttribute("title", hit?.name ?? "");
+        (e.currentTarget as HTMLElement).style.cursor = hit ? "pointer" : "";
+        requestPaint();
+      } else if (toolRef.current !== "none") requestPaint();
       return;
     }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -783,8 +1135,10 @@ export function MapView() {
       requestPaint();
       return;
     }
-    if (!p.dragging && Math.hypot(mx - p.x, my - p.y) > 3 * gRef.current)
+    if (!p.dragging && Math.hypot(mx - p.x, my - p.y) > 3 * gRef.current) {
       p.dragging = true;
+      clearTimeout(longPress.current);
+    }
     if (p.dragging) {
       cam.current = panBy(p.cam, mx - p.x, my - p.y);
       moved();
@@ -837,6 +1191,11 @@ export function MapView() {
       requestPaint();
       return;
     }
+    clearTimeout(longPress.current);
+    if (!p.dragging && toolRef.current === "none") {
+      mapClick(mx, my, p.button);
+      return;
+    }
     if (!p.dragging && toolRef.current === "ruler") {
       if (p.button === 0) {
         ruler.current.push(screenToWorld(cam.current, size.current, mx, my));
@@ -849,9 +1208,14 @@ export function MapView() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.target instanceof HTMLInputElement) return;
+    if (
+      e.target instanceof HTMLInputElement ||
+      e.target instanceof HTMLTextAreaElement
+    )
+      return;
     if (e.key === "Escape") {
       if (overlay !== "none") setOverlay("none");
+      else if (panel !== "none") closePanel();
       else if (tool !== "none") setTool("none");
       return;
     }
@@ -869,6 +1233,7 @@ export function MapView() {
       moved();
     } else if (e.key === "+" || e.key === "=") zoomBy(1.5);
     else if (e.key === "-") zoomBy(1 / 1.5);
+    else if (e.code === "KeyJ") setListOpen(!listOpen);
     else if (e.code === "KeyR") setTool(tool === "ruler" ? "none" : "ruler");
     else if (e.code === "KeyG") setTool(tool === "draw" ? "none" : "draw");
     else if (e.code === "KeyH")
@@ -884,12 +1249,16 @@ export function MapView() {
   // ------------------------------------------------------------------ layout
 
   const gw = width / g; // the window width in GUI pixels
-  const freeLeft = 6 + TB + 8;
-  const freeRight = gw - 6;
+  const listW = Math.max(130, Math.min(180, gw / 4));
+  const panelW = Math.max(150, Math.min(190, gw / 3));
+  const freeLeft = 6 + TB + 8 + (listOpen ? listW + 4 : 0);
+  const freeRight = panel !== "none" ? gw - panelW - 10 : gw - 6;
   const midX = ((freeLeft + freeRight) / 2) * g;
   const u = (n: number) => px(n * g);
 
   type Action =
+    | "list"
+    | "markers"
     | "ruler"
     | "draw"
     | "drawings"
@@ -903,7 +1272,14 @@ export function MapView() {
     icon: string;
     label: string;
     pressed?: boolean;
+    src?: string;
   }[] = [
+    {
+      action: "list",
+      icon: "list",
+      label: "Список меток [J]",
+      pressed: listOpen,
+    },
     {
       action: "ruler",
       icon: "ruler",
@@ -922,6 +1298,15 @@ export function MapView() {
       label: prefs.drawings ? "Скрыть рисунки [H]" : "Показать рисунки [H]",
       pressed: !prefs.drawings,
     },
+    {
+      action: "markers",
+      icon: "pin",
+      src: "/map/ui/markers/pin.png",
+      label: prefs.markers
+        ? "Скрыть метки на карте"
+        : "Показать метки на карте",
+      pressed: !prefs.markers,
+    },
     { action: "center", icon: "map", label: "К середине карты" },
     { action: "in", icon: "zoom_in", label: "Приблизить [+ / колесо]" },
     { action: "out", icon: "zoom_out", label: "Отдалить [- / колесо]" },
@@ -939,7 +1324,10 @@ export function MapView() {
     },
   ];
   function run(action: Action) {
-    if (action === "ruler") setTool(tool === "ruler" ? "none" : "ruler");
+    if (action === "list") setListOpen(!listOpen);
+    else if (action === "markers")
+      savePrefs({ ...prefs, markers: !prefs.markers });
+    else if (action === "ruler") setTool(tool === "ruler" ? "none" : "ruler");
     else if (action === "draw") setTool(tool === "draw" ? "none" : "draw");
     else if (action === "drawings")
       savePrefs({ ...prefs, drawings: !prefs.drawings });
@@ -952,6 +1340,7 @@ export function MapView() {
   }
   const globeAt = toolbar.findIndex((b) => b.icon === "globe");
 
+  const selectedMarker = markers.find((x) => x.id === selectedId) ?? null;
   const drawBarW = 20 * 11 + 15;
   const settingsW = Math.min(gw - 16, 430);
   const twoCols = settingsW >= 380;
@@ -1000,6 +1389,7 @@ export function MapView() {
             icon={b.icon}
             label={b.label}
             pressed={b.pressed}
+            src={b.src}
             onClick={() => run(b.action)}
           />
         ))}
@@ -1201,7 +1591,7 @@ export function MapView() {
       <Panel
         className="flex items-center"
         style={{
-          left: u(6 + TB + 10),
+          left: u(6 + TB + 10 + (listOpen ? listW + 4 : 0)),
           bottom: u(6),
           height: u(16),
           padding: `0 ${u(6)}`,
@@ -1260,7 +1650,12 @@ export function MapView() {
         aria-hidden="true"
         draggable={false}
         className="pointer-events-none absolute"
-        style={{ right: u(10), bottom: u(8), width: u(48), height: u(48) }}
+        style={{
+          right: u(panel !== "none" ? panelW + 16 : 10),
+          bottom: u(8),
+          width: u(48),
+          height: u(48),
+        }}
       />
 
       {/* site states the mod has no screen for: who may see players, an empty or failed map */}
@@ -1271,7 +1666,7 @@ export function MapView() {
         <div
           className="absolute flex flex-col items-end"
           style={{
-            right: u(6),
+            right: u(panel !== "none" ? panelW + 12 : 6),
             bottom: u(60),
             gap: u(4),
             maxWidth: u(gw - 40),
@@ -1565,6 +1960,196 @@ export function MapView() {
             </div>
           </Panel>
         </>
+      )}
+
+      {/* MapScreen.drawList */}
+      {listOpen && (
+        <MarkerList
+          theme={theme}
+          g={g}
+          width={listW}
+          total={markers.filter((m) => m.dim === dim).length}
+          markers={sortMarkers(
+            markers.filter((m) => m.dim === dim),
+            sort,
+            query,
+            viewMid,
+          )}
+          selected={selectedId}
+          hidden={hidden}
+          sort={sort}
+          query={query}
+          from={viewMid}
+          emptyText={
+            me.canCreate
+              ? "Меток пока нет. Нажмите ПКМ по карте, чтобы поставить метку."
+              : "Меток пока нет."
+          }
+          onSort={(dir) => {
+            const i = SORTS.findIndex((x) => x.id === sort);
+            setSort(SORTS[(i + dir + SORTS.length) % SORTS.length].id);
+          }}
+          onQuery={setQuery}
+          onSelect={(m) => openView(m, true)}
+          onToggleHidden={toggleHidden}
+          onToggleAll={toggleAllHidden}
+        />
+      )}
+
+      {/* MapScreen.drawViewPanel */}
+      {panel === "view" && selectedMarker && (
+        <MarkerCard
+          theme={theme}
+          g={g}
+          width={panelW}
+          marker={selectedMarker}
+          staff={staff || me.canLabel}
+          signedIn={me.signedIn}
+          hiddenForMe={hidden.has(selectedMarker.id)}
+          onClose={closePanel}
+          onToggleHidden={() => toggleHidden(selectedMarker.id)}
+          onGoto={() => openView(selectedMarker, true)}
+          onEdit={() => editMarker(selectedMarker)}
+          onDelete={() => setOverlay("delete-marker")}
+          onReport={() => {
+            setMarkerError(null);
+            setOverlay("report");
+          }}
+        />
+      )}
+
+      {/* MapScreen.drawEditPanel */}
+      {panel === "edit" && draft && (
+        <MarkerEditor
+          theme={theme}
+          g={g}
+          width={panelW}
+          draft={draft}
+          canLabel={me.canLabel}
+          inGuild={me.inGuild}
+          busy={busy}
+          error={markerError}
+          onChange={setDraft}
+          onPickIcon={() => setOverlay("icons")}
+          onPickColor={() => {
+            setColorFor(draft.icon);
+            setOverlay("colors");
+          }}
+          onSave={() => void saveDraft()}
+          onCancel={() => {
+            const id = draft.id;
+            setDraft(null);
+            setMarkerError(null);
+            if (id) {
+              select(id);
+              setPanel("view");
+            } else closePanel();
+          }}
+          onDelete={() => setOverlay("delete-marker")}
+        />
+      )}
+
+      {overlay === "icons" && draft && (
+        <IconPicker
+          theme={theme}
+          g={g}
+          current={draft.icon}
+          color={draft.color}
+          onClose={() => setOverlay("none")}
+          onPick={(icon, withColor) => {
+            setDraft({ ...draft, icon });
+            if (withColor) {
+              setColorFor(icon);
+              setOverlay("colors");
+            } else setOverlay("none");
+          }}
+        />
+      )}
+      {overlay === "colors" && draft && (
+        <ColorPicker
+          theme={theme}
+          g={g}
+          icon={colorFor ?? draft.icon}
+          color={colorFor === draft.icon || !colorFor ? draft.color : null}
+          onClose={() => setOverlay("none")}
+          onPick={(color) => {
+            setDraft({ ...draft, icon: colorFor ?? draft.icon, color });
+            setOverlay("none");
+          }}
+        />
+      )}
+      {overlay === "report" && selectedId && (
+        <ReportDialog
+          theme={theme}
+          g={g}
+          name={markers.find((m) => m.id === selectedId)?.name ?? ""}
+          error={markerError}
+          busy={busy}
+          onClose={() => setOverlay("none")}
+          onSend={(reason) => void sendReport(reason)}
+        />
+      )}
+      {overlay === "delete-marker" && (
+        <>
+          <div
+            className="atlas-dim"
+            style={{ background: "var(--dim)" }}
+            onClick={() => setOverlay("none")}
+          />
+          <Panel
+            role="alertdialog"
+            aria-label="Удалить метку?"
+            className="flex flex-col items-center text-center"
+            style={{
+              left: "50%",
+              top: "50%",
+              transform: "translate(-50%,-50%)",
+              width: u(Math.min(240, gw - 20)),
+              padding: `${u(12)} ${u(12)} ${u(8)}`,
+              gap: u(12),
+            }}
+          >
+            Удалить метку «
+            {markers.find((m) => m.id === (selectedId ?? draft?.id))?.name}»?
+            <div className="flex" style={{ gap: u(8) }}>
+              <button
+                type="button"
+                className="atlas-text-btn"
+                style={{ width: u(80) }}
+                disabled={busy}
+                onClick={() => void deleteSelected()}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={toolIcon(theme, "check")} alt="" />
+                Да
+              </button>
+              <button
+                type="button"
+                className="atlas-text-btn"
+                style={{ width: u(80) }}
+                onClick={() => setOverlay("none")}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={toolIcon(theme, "close")} alt="" />
+                Нет
+              </button>
+            </div>
+          </Panel>
+        </>
+      )}
+
+      {toast && (
+        <Panel
+          role="status"
+          style={{
+            left: "50%",
+            top: u(30),
+            transform: "translateX(-50%)",
+            padding: `${u(3)} ${u(8)}`,
+          }}
+        >
+          {toast}
+        </Panel>
       )}
 
       {/* MapScreen.drawConfirm */}
