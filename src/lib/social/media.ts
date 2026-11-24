@@ -4,7 +4,7 @@ import { isCoverOfOpenProject } from "@/lib/projects/store";
 import { db } from "@/lib/supabase-admin";
 import { SocialError } from "./errors";
 import { normalizeImage } from "./image";
-import type { Viewer } from "./viewer";
+import { canSeePost, type Viewer } from "./viewer";
 
 const BUCKET = "media";
 export const MAX_IMAGES_PER_POST = 10;
@@ -105,11 +105,6 @@ export async function ingestUploads(
       if (total > TOTAL_BYTES) throw new SocialError("upload_quota_total");
 
       const key = `${userId}/${randomUUID()}.webp`;
-      const up = await storage().upload(key, data, {
-        contentType: "image/webp",
-        upsert: false,
-      });
-      if (up.error) throw new Error(`storage upload: ${up.error.message}`);
       const { data: row, error: insErr } = await db()
         .from("media")
         .insert({
@@ -125,14 +120,19 @@ export async function ingestUploads(
         )
         .single();
       if (insErr || !row) {
-        await storage().remove([key]);
         throw new Error(`media insert: ${insErr?.message}`);
       }
       created.push(row as MediaRow);
+      const upload = await storage().upload(key, data, {
+        contentType: "image/webp",
+        upsert: false,
+      });
+      if (upload.error)
+        throw new Error(`storage upload: ${upload.error.message}`);
     }
     return created;
   } catch (e) {
-    await discardMedia(created);
+    await discardUnpublishedMedia(created);
     throw e;
   } finally {
     await storage()
@@ -141,21 +141,54 @@ export async function ingestUploads(
   }
 }
 
+export async function discardUnpublishedMedia(
+  rows: { id: string; storage_key: string }[],
+) {
+  if (!rows.length) return;
+  try {
+    await discardMedia(rows);
+  } catch (error) {
+    const now = new Date().toISOString();
+    const scheduled = await db()
+      .from("media")
+      .update({ deleted_at: now, purge_after: now })
+      .in(
+        "id",
+        rows.map((row) => row.id),
+      );
+    if (scheduled.error)
+      throw new Error(`media rollback scheduling: ${scheduled.error.message}`, {
+        cause: error,
+      });
+    console.error("Deferred media rollback to purge", error);
+  }
+}
+
 /** Hard removal of media that never became visible (rollback). */
 export async function discardMedia(
   rows: { id: string; storage_key: string }[],
 ) {
-  if (rows.length === 0) return;
-  await storage()
-    .remove(rows.map((r) => r.storage_key))
-    .catch(() => undefined);
-  await db()
+  if (rows.length === 0) return 0;
+  const keys = rows.map((r) => r.storage_key);
+  const bucket = storage();
+  const { error: removeError } = await bucket.remove(keys);
+  if (removeError)
+    throw new Error(`media storage removal: ${removeError.message}`);
+  // A retry can find the file already gone. Check existence before dropping its database record.
+  for (const key of keys) {
+    const { data: exists } = await bucket.exists(key);
+    if (exists)
+      throw new Error(`media storage removal could not be confirmed: ${key}`);
+  }
+  const { error } = await db()
     .from("media")
     .delete()
     .in(
       "id",
       rows.map((r) => r.id),
     );
+  if (error) throw new Error(`media row removal: ${error.message}`);
+  return rows.length;
 }
 
 /**
@@ -164,24 +197,8 @@ export async function discardMedia(
  */
 export async function releaseUnusedMedia(mediaIds: string[]) {
   if (mediaIds.length === 0) return;
-  const { data: still } = await db()
-    .from("media_attachments")
-    .select("media_id")
-    .in("media_id", mediaIds);
-  const used = new Set((still ?? []).map((r) => r.media_id as string));
-  const free = mediaIds.filter((id) => !used.has(id));
-  if (free.length === 0) return;
-  const now = new Date();
-  await db()
-    .from("media")
-    .update({
-      deleted_at: now.toISOString(),
-      purge_after: new Date(
-        now.getTime() + PURGE_DAYS * 86_400_000,
-      ).toISOString(),
-    })
-    .in("id", free)
-    .is("deleted_at", null);
+  const { error } = await db().rpc("media_release_unused", { p_ids: mediaIds });
+  if (error) throw new Error(`media release: ${error.message}`);
 }
 
 /** Removes uploads that never became part of a post (older than one hour). */
@@ -205,21 +222,22 @@ export async function purgeStaleIncoming() {
 
 /** Physical cleanup of media whose retention has ended (called by the daily job). */
 export async function purgeExpiredMedia(limit = 200) {
-  const { data } = await db()
+  const { data, error } = await db()
     .from("media")
     .select("id, storage_key")
     .not("deleted_at", "is", null)
     .lte("purge_after", new Date().toISOString())
+    .order("purge_after")
     .limit(limit);
-  const rows = (data ?? []) as { id: string; storage_key: string }[];
-  await discardMedia(rows);
-  return rows.length;
+  if (error) throw new Error(`media purge selection: ${error.message}`);
+  return discardMedia(data ?? []);
 }
 
-/** True when anybody may fetch this file: public, approved and in the gallery, a post or a cover. */
-async function isShownToEveryone(
+/** Public gallery and project covers can be served before resolving a session. */
+async function canReadAttachment(
   id: string,
   m: { visibility: string; moderation_status: string },
+  viewer: () => Promise<Viewer>,
 ): Promise<boolean> {
   if (m.visibility !== "public" || m.moderation_status !== "approved")
     return false;
@@ -234,53 +252,61 @@ async function isShownToEveryone(
     .filter((a) => a.target_type === "post")
     .map((a) => a.target_id as string);
   if (postIds.length === 0) return false;
-  const { count } = await db()
+  const { data: posts, error } = await db()
     .from("posts")
-    .select("id", { count: "exact", head: true })
+    .select("kind, visibility, author_id")
     .in("id", postIds)
-    .eq("visibility", "public")
     .eq("moderation_status", "approved")
     .is("deleted_at", null);
-  return (count ?? 0) > 0;
+  if (error) throw new Error(`media post audience: ${error.message}`);
+  if (
+    posts.some((post) => post.kind === "news" && post.visibility === "public")
+  )
+    return true;
+  if (posts.length === 0) return false;
+  const who = await viewer();
+  return posts.some((post) => canSeePost(who, post));
 }
 
-/**
- * May this viewer fetch the file? Owner and staff always (unless deleted); everybody else only
- * public, approved media that is in the public gallery or on a visible public post.
- *
- * `viewer` may be a function: for media that everybody can see the viewer is never looked up (a
- * gallery page asks for dozens of thumbnails, and each lookup is several database round trips).
- * `shared` tells the caller the answer does not depend on who asks, so it may be cached longer.
- */
-export async function mediaAccess(
+/** Stream through MineOrt so reopening the URL always checks the current audience. */
+export async function readMedia(
   id: string,
-  viewer: Viewer | (() => Promise<Viewer>),
-): Promise<{ url: string; shared: boolean } | null> {
-  const { data: m } = await db()
+  getViewer: () => Promise<Viewer>,
+  thumbnail = false,
+): Promise<Blob | null> {
+  const { data: m, error } = await db()
     .from("media")
     .select(
       "id, uploader_id, storage_key, visibility, moderation_status, deleted_at",
     )
     .eq("id", id)
     .maybeSingle();
+  if (error) throw new Error(`media lookup: ${error.message}`);
   if (!m || m.deleted_at) return null;
-  const shared = await isShownToEveryone(id, m);
-  if (!shared) {
-    const who = typeof viewer === "function" ? await viewer() : viewer;
-    if (who.userId !== m.uploader_id && !who.canModerate) return null;
+  let viewer: Promise<Viewer> | undefined;
+  const resolveViewer = () => (viewer ??= getViewer());
+  if (!(await canReadAttachment(id, m, resolveViewer))) {
+    const who = await resolveViewer();
+    if (
+      !who.canModerate &&
+      (who.userId !== m.uploader_id || who.cls === "restricted")
+    )
+      return null;
   }
-  // A file that everybody can see keeps its link a little longer: the browser then reuses the
-  // redirect instead of asking the server again for every image on every page.
-  const { data: signed } = await storage().createSignedUrl(
+  const { data } = await storage().download(
     m.storage_key,
-    shared ? 600 : 120,
+    thumbnail
+      ? { transform: { width: 480, resize: "contain", quality: 75 } }
+      : undefined,
   );
-  return signed?.signedUrl ? { url: signed.signedUrl, shared } : null;
-}
-
-export async function mediaSignedUrl(
-  id: string,
-  viewer: Viewer,
-): Promise<string | null> {
-  return (await mediaAccess(id, viewer))?.url ?? null;
+  if (data || !thumbnail) return data;
+  // Local Storage and some hosted plans have no image transformation service.
+  const original = await storage().download(m.storage_key);
+  if (!original.data) return null;
+  const { default: sharp } = await import("sharp");
+  const image = await sharp(Buffer.from(await original.data.arrayBuffer()))
+    .resize({ width: 480, withoutEnlargement: true })
+    .webp({ quality: 75 })
+    .toBuffer();
+  return new Blob([new Uint8Array(image)], { type: "image/webp" });
 }

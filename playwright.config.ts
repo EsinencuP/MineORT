@@ -44,6 +44,12 @@ export default defineConfig({
           FF_P1B_GUILDS: process.env.FF_P1B_GUILDS ?? "",
           FF_P1C: process.env.FF_P1C ?? "",
           FF_P1C_ATLAS: process.env.FF_P1C_ATLAS ?? "",
+          FF_SOCIAL_COMMENTS: process.env.FF_SOCIAL_COMMENTS ?? "",
+          FF_COMMUNITY_EVENTS: process.env.FF_COMMUNITY_EVENTS ?? "",
+          FF_COMMUNITY_NOTIFICATIONS:
+            process.env.FF_COMMUNITY_NOTIFICATIONS ?? "",
+          FF_COMMUNITY_SMS: process.env.FF_COMMUNITY_SMS ?? "",
+          FF_COMMUNITY_PROGRESS: process.env.FF_COMMUNITY_PROGRESS ?? "",
         },
         timeout: 180_000,
       },

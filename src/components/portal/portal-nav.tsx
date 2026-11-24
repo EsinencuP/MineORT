@@ -14,7 +14,28 @@ type Leaf = { label: string; href: string; flag?: FlagName; also?: string[] };
  * shown as a dead item (the quick actions on the dashboard say "скоро" for the map instead).
  */
 const GROUPS: (Leaf & { children?: Leaf[] })[] = [
-  { label: "Мой MineOrt", href: "/dashboard" },
+  {
+    label: "Мой MineOrt",
+    href: "/dashboard",
+    children: [
+      { label: "Кабинет", href: "/dashboard" },
+      {
+        label: "Уведомления",
+        href: "/dashboard/notifications",
+        flag: "ff_community_notifications",
+      },
+      {
+        label: "Сообщения",
+        href: "/dashboard/messages",
+        flag: "ff_community_sms",
+      },
+      {
+        label: "Достижения",
+        href: "/dashboard/progress",
+        flag: "ff_community_progress",
+      },
+    ],
+  },
   {
     label: "Общение",
     href: "/social",
@@ -43,7 +64,19 @@ const GROUPS: (Leaf & { children?: Leaf[] })[] = [
     ],
   },
   { label: "Гайдбук", href: "/guide" },
-  { label: "Карта мира", href: "/map", flag: "ff_p1c_atlas" },
+  {
+    label: "Карта мира",
+    href: "/map",
+    flag: "ff_p1c_atlas",
+    children: [
+      { label: "Карта", href: "/map" },
+      {
+        label: "Подборки",
+        href: "/map/collections",
+        flag: "ff_community_collections",
+      },
+    ],
+  },
 ];
 
 export function portalItems(): PortalNavItem[] {
@@ -106,22 +139,40 @@ export function PortalNav({
         <PortalTabs items={items} />
       </Suspense>
       <div className="flex shrink-0 items-center gap-2">
-        <span
-          title="Уведомления появятся в ближайшем обновлении"
-          className="border-line text-ink-muted inline-flex size-11 items-center justify-center rounded-full border"
-          role="img"
-          aria-label="Уведомления: скоро"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            className="size-5"
-            fill="currentColor"
-            aria-hidden="true"
-            shapeRendering="crispEdges"
+        {isEnabled("ff_community_notifications") ? (
+          <Link
+            href="/dashboard/notifications"
+            aria-label="Уведомления"
+            className="border-line text-brand-700 hover:bg-brand-50 inline-flex size-11 items-center justify-center rounded-full border"
           >
-            <path d="M11 2h2v2h3v2h1v6h2v3h2v2H3v-2h2v-3h2V6h1V4h3zM10 19h4v2h-4z" />
-          </svg>
-        </span>
+            <svg
+              viewBox="0 0 24 24"
+              className="size-5"
+              fill="currentColor"
+              aria-hidden="true"
+              shapeRendering="crispEdges"
+            >
+              <path d="M11 2h2v2h3v2h1v6h2v3h2v2H3v-2h2v-3h2V6h1V4h3zM10 19h4v2h-4z" />
+            </svg>
+          </Link>
+        ) : (
+          <span
+            title="Уведомления появятся в ближайшем обновлении"
+            className="border-line text-ink-muted inline-flex size-11 items-center justify-center rounded-full border"
+            role="img"
+            aria-label="Уведомления: скоро"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="size-5"
+              fill="currentColor"
+              aria-hidden="true"
+              shapeRendering="crispEdges"
+            >
+              <path d="M11 2h2v2h3v2h1v6h2v3h2v2H3v-2h2v-3h2V6h1V4h3zM10 19h4v2h-4z" />
+            </svg>
+          </span>
+        )}
         <details className="relative">
           <summary
             className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-full"

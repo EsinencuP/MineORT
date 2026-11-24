@@ -6,12 +6,14 @@ import {
   type Resolved,
 } from "@/lib/map/positions";
 import { broadcast } from "@/lib/map/realtime";
+import { SLOW_INTERVAL_MS, FAST_INTERVAL_MS } from "@/lib/map/viewers";
 import {
-  hasViewers,
-  SLOW_INTERVAL_MS,
-  FAST_INTERVAL_MS,
-} from "@/lib/map/viewers";
-import type { MapVisibility } from "@/lib/map/visibility";
+  guildTopic,
+  sessionTopic,
+  TOPIC_ADMIN,
+  TOPIC_ALL,
+  type MapVisibility,
+} from "@/lib/map/visibility";
 import { db } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -33,13 +35,14 @@ export async function POST(req: NextRequest) {
     return bridgeJson({ error: "ERR_BAD_REQUEST" }, 400);
   }
 
-  const watched = await hasViewers();
-  const interval = watched ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS;
-  if (positions.length === 0) return bridgeJson({ interval_ms: interval });
-
-  const { data, error } = await db().rpc("map_resolve_players", {
-    p_uuids: positions.map((p) => p.uuid),
-  });
+  const [audience, { data, error }] = await Promise.all([
+    db().rpc("map_live_audience"),
+    db().rpc("map_resolve_players", { p_uuids: positions.map((p) => p.uuid) }),
+  ]);
+  if (audience.error)
+    throw new Error(`map live audience: ${audience.error.message}`);
+  if (audience.data.length === 0)
+    return bridgeJson({ interval_ms: SLOW_INTERVAL_MS });
   if (error) throw new Error(`map_resolve_players: ${error.message}`);
   const resolved = new Map<string, Resolved>();
   for (const row of data as {
@@ -56,17 +59,37 @@ export async function POST(req: NextRequest) {
   }
 
   const now = Date.now();
+  const groups = groupByTopic(positions, resolved);
   try {
-    await broadcast(
-      [...groupByTopic(positions, resolved)].map(([topic, p]) => ({
-        topic,
+    const messages = (
+      audience.data as {
+        session_id: string;
+        guild_id: string | null;
+        staff: boolean;
+      }[]
+    ).map((viewer) => {
+      const publicDots = groups.get(TOPIC_ALL) ?? [];
+      const guildDots = viewer.guild_id
+        ? (groups.get(guildTopic(viewer.guild_id)) ?? [])
+        : [];
+      const dots = viewer.staff
+        ? (groups.get(TOPIC_ADMIN) ?? [])
+        : [
+            ...new Map(
+              [...publicDots, ...guildDots].map((dot) => [dot.n, dot]),
+            ).values(),
+          ];
+      return {
+        topic: sessionTopic(viewer.session_id),
         event: "pos",
-        payload: { t: now, p },
-      })),
-    );
+        payload: { t: now, p: dots, staff: viewer.staff },
+      };
+    });
+    for (let i = 0; i < messages.length; i += 15)
+      await broadcast(messages.slice(i, i + 15));
   } catch (e) {
     // positions are perishable: the next batch replaces this one, so a failed push is logged only
     console.error("map position broadcast failed", e);
   }
-  return bridgeJson({ interval_ms: interval });
+  return bridgeJson({ interval_ms: FAST_INTERVAL_MS });
 }

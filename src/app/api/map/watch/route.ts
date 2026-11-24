@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { withinRateLimit } from "@/lib/auth/store";
 import { flagGuard } from "@/lib/flags";
 import { loadViewer } from "@/lib/map/viewer";
-import { markViewer } from "@/lib/map/viewers";
+import { markLiveSession, markViewer } from "@/lib/map/viewers";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +21,6 @@ export async function POST() {
   const viewer = await loadViewer(user);
   if (!viewer.member && !viewer.staff)
     return NextResponse.json({ error: "members only" }, { status: 403 });
-  await markViewer(user.userId);
+  await Promise.all([markViewer(user.userId), markLiveSession(user.sessionId)]);
   return new NextResponse(null, { status: 204 });
 }

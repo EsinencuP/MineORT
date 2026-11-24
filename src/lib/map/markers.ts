@@ -17,6 +17,9 @@ import {
   type MarkerViewer,
 } from "./marker-rules";
 import { loadViewer } from "./viewer";
+import type { Vertex } from "./polygon";
+import { awardProgress } from "@/lib/community/progress";
+import { isEnabled } from "@/lib/flags";
 
 /** Stable error codes of the map markers; user texts live in access/messages.ts. */
 export class MarkerError extends Error {
@@ -28,10 +31,12 @@ export class MarkerError extends Error {
 export const MARKERS_PER_HOUR = 10;
 export const MAX_ACTIVE_MARKERS = 100;
 const COLUMNS =
-  "id, author_id, kind, dim, x, y, z, name, description, icon, color, visibility, guild_id, moderation_status, deleted_at, created_at, updated_at";
+  "id, author_id, kind, dim, x, y, z, name, description, icon, color, visibility, guild_id, moderation_status, deleted_at, created_at, updated_at, boundary";
 
 /** What the map gets of a marker. Heights go to staff only; the map itself shows no numbers. */
 export type MarkerDto = {
+  boundary?: Vertex[] | null;
+  bookmarked?: boolean;
   id: string;
   kind: MarkerRow["kind"];
   dim: Dim;
@@ -61,7 +66,7 @@ export async function getMarkerViewer(): Promise<MarkerViewer> {
     member: v.member && social.cls !== "restricted",
     staff: v.staff,
     moderator: social.canModerate,
-    guildId: v.guildId,
+    guildId: v.member ? v.guildId : null,
   };
 }
 
@@ -69,13 +74,30 @@ async function toDtos(
   v: MarkerViewer,
   rows: MarkerRow[],
 ): Promise<MarkerDto[]> {
-  const authors = await authorsOf([...new Set(rows.map((r) => r.author_id))]);
+  const bookmarkEnabled = Boolean(
+    v.userId && (v.member || v.moderator) && isEnabled("ff_social_comments"),
+  );
+  const [authors, bookmarks] = await Promise.all([
+    authorsOf([...new Set(rows.map((r) => r.author_id))]),
+    bookmarkEnabled
+      ? db()
+          .from("community_bookmarks")
+          .select("target_id")
+          .eq("user_id", v.userId)
+          .eq("target_type", "marker")
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (bookmarks.error)
+    throw new Error(`marker bookmarks: ${bookmarks.error.message}`);
+  const saved = new Set(bookmarks.data.map((row) => row.target_id));
   return rows.map((m) => ({
     id: m.id,
     kind: m.kind,
     dim: m.dim,
     x: m.x,
     z: m.z,
+    ...(m.boundary ? { boundary: m.boundary } : {}),
+    ...(bookmarkEnabled ? { bookmarked: saved.has(m.id) } : {}),
     ...(v.staff ? { y: m.y } : {}),
     name: m.name,
     description: m.description,
@@ -128,6 +150,28 @@ export async function getMarker(v: MarkerViewer, id: string) {
   return (await toDtos(v, [row]))[0];
 }
 
+export async function getMarkersForCollection(v: MarkerViewer, ids: string[]) {
+  if (!ids.length) return [];
+  const { data, error } = await db()
+    .from("map_markers")
+    .select(COLUMNS)
+    .in("id", ids)
+    .is("deleted_at", null);
+  if (error) throw new Error(`collection markers: ${error.message}`);
+  const visible = new Map(
+    (data as MarkerRow[])
+      .filter((row) => canSee(v, row))
+      .map((row) => [row.id, row]),
+  );
+  return toDtos(
+    v,
+    ids.flatMap((id) => {
+      const row = visible.get(id);
+      return row ? [row] : [];
+    }),
+  );
+}
+
 function guildFor(v: MarkerViewer, input: MarkerInput) {
   if (input.visibility !== "guild") return null;
   if (!v.guildId) throw new MarkerError("marker_no_guild");
@@ -166,6 +210,7 @@ export async function createMarker(v: MarkerViewer, input: MarkerInput) {
       description: input.description,
       icon: input.icon,
       color: input.color,
+      boundary: input.boundary ?? null,
       visibility: input.kind === "label" ? "public" : input.visibility,
       guild_id: input.kind === "label" ? null : guildFor(v, input),
       moderation_status:
@@ -190,7 +235,9 @@ export async function updateMarker(
   if (!row || !canSee(v, row)) throw new MarkerError("marker_not_found");
   if (!canEdit(v, row)) throw new MarkerError("forbidden");
   const label = row.kind === "label";
-  const visibility = label ? "public" : input.visibility;
+  if (!label && input.boundary)
+    throw new MarkerError("marker_boundary_invalid");
+  const visibility = label ? row.visibility : input.visibility;
   const status =
     row.moderation_status === "hidden" && !v.moderator
       ? "hidden"
@@ -205,8 +252,9 @@ export async function updateMarker(
       description: input.description,
       icon: input.icon,
       color: input.color,
+      ...(input.boundary !== undefined ? { boundary: input.boundary } : {}),
       visibility,
-      guild_id: label ? null : guildFor(v, { ...input, visibility }),
+      guild_id: label ? row.guild_id : guildFor(v, { ...input, visibility }),
       moderation_status: status,
       updated_at: new Date().toISOString(),
     })
@@ -296,9 +344,11 @@ export async function decideMarker(
     })
     .eq("id", id)
     .is("deleted_at", null)
-    .select("id");
+    .select("id, author_id, visibility");
   if (error) throw new Error(`decide marker: ${error.message}`);
   if (!data?.length) throw new MarkerError("marker_not_found");
+  if (decision === "approve" && data[0].visibility === "public")
+    await awardProgress(data[0].author_id, "marker");
   await writeAudit(moderatorId, `marker.${decision}`, {
     marker_id: id,
     note: reason || null,

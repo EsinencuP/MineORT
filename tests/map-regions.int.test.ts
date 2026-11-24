@@ -56,7 +56,9 @@ const stored = async (rx: number, rz: number) => {
 /** RGBA of one pixel of a PNG made by the tile encoder (filter 0 on every row). */
 function pixel(png: Buffer, x: number, y: number) {
   const at = png.indexOf("IDAT");
-  const raw = inflateSync(png.subarray(at + 4, at + 4 + png.readUInt32BE(at - 4)));
+  const raw = inflateSync(
+    png.subarray(at + 4, at + 4 + png.readUInt32BE(at - 4)),
+  );
   const o = y * (TILE_SIZE * 4 + 1) + 1 + x * 4;
   return [...raw.subarray(o, o + 4)];
 }
@@ -160,8 +162,41 @@ describe.skipIf(!enabled)("region rebuild", () => {
   });
 
   it("lists the explored regions with the version of their tile", async () => {
-    const list = await listRegions(serverId, "overworld");
+    const list = await listRegions(serverId, "overworld", {
+      minX: 3,
+      maxX: 3,
+      minZ: 0,
+      maxZ: 0,
+    });
     expect(list).toContainEqual({ rx: 3, rz: 0, version: 4 });
+  });
+
+  it("returns region 501 without pulling in a region outside the viewport", async () => {
+    const fixture = Array.from({ length: 501 }, (_, i) => ({
+      server_id: serverId,
+      dim: "nether",
+      rx: 100 + Math.floor(i / 26),
+      rz: 200 + (i % 26),
+      built_version: i + 1,
+      dirty: false,
+    }));
+    const outside = { ...fixture[0], rx: 150 };
+    const { error } = await db()
+      .from("map_regions")
+      .insert([...fixture, outside]);
+    if (error) throw error;
+    const regions = await listRegions(serverId, "nether", {
+      minX: 100,
+      maxX: 120,
+      minZ: 200,
+      maxZ: 225,
+    });
+    expect(regions).toHaveLength(501);
+    expect(regions.at(-1)).toEqual({
+      rx: fixture[500].rx,
+      rz: fixture[500].rz,
+      version: 501,
+    });
   });
 
   it("serves a recently changed region as it was instead of rebuilding it", async () => {

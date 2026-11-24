@@ -91,6 +91,11 @@ export default async function ProjectPage({
   if (!p) notFound();
   const listBack = safeBack(sp.back, ["/social/projects"]);
   const here = withBack(`/social/projects/${id}`, listBack);
+  const canDiscuss =
+    discussionsEnabled() && viewer.userId && p.status !== "cancelled";
+  const following = canDiscuss
+    ? await isFollowing(viewer.userId!, "project", id)
+    : false;
   const open = p.status === "recruiting" || p.status === "in_progress";
   const field =
     "bg-paper text-ink border-line min-h-11 rounded-xl border px-3 text-sm";
@@ -180,6 +185,19 @@ export default async function ProjectPage({
             </div>
           </dl>
           <ProgressBar value={p.progress} label="Готовность проекта" />
+          {canDiscuss && (
+            <div className="flex flex-wrap gap-2">
+              <ThreadLink type="project" id={id} />
+              {viewer.cls !== "restricted" && (
+                <FollowControl
+                  type="project"
+                  id={id}
+                  following={following}
+                  back={here}
+                />
+              )}
+            </div>
+          )}
         </Card>
 
         <section aria-labelledby="needs" className="flex flex-col gap-3">
@@ -673,3 +691,5 @@ export default async function ProjectPage({
     </div>
   );
 }
+import { FollowControl, ThreadLink } from "@/components/social/thread-controls";
+import { discussionsEnabled, isFollowing } from "@/lib/community/discussions";

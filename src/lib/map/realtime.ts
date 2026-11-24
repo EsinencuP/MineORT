@@ -12,6 +12,7 @@ export const TOKEN_TTL_S = 600;
  */
 export async function signRealtimeToken(v: {
   userId: string;
+  sessionId: string;
   guildId: string | null;
   staff: boolean;
 }): Promise<{ token: string; expiresAt: number; claims: ViewerClaims }> {
@@ -20,7 +21,11 @@ export async function signRealtimeToken(v: {
   const claims = claimsFor(v);
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + TOKEN_TTL_S;
-  const token = await new SignJWT({ ...claims, role: "authenticated" })
+  const token = await new SignJWT({
+    mo_map: claims.mo_map,
+    mo_map_session: v.sessionId,
+    role: "authenticated",
+  })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(v.userId)
     .setAudience("authenticated")

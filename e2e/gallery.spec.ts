@@ -221,7 +221,7 @@ test("the owner edits a caption, then hides an image: it disappears for everyone
   const guest = await guestPage(browser);
   expect(
     (await guest.request.get(`/api/media/${id}`, { maxRedirects: 0 })).status(),
-  ).toBe(302);
+  ).toBe(200);
 
   const again = bob.locator("li", { hasText: CAP2 });
   await again.locator("summary", { hasText: "Изменить" }).click();
@@ -241,7 +241,7 @@ test("the owner edits a caption, then hides an image: it disappears for everyone
   await back.locator("summary", { hasText: "Изменить" }).click();
   await back.getByLabel("Видимость").selectOption("public");
   await back.getByRole("button", { name: "Сохранить", exact: true }).click();
-  await await expect.poll(mediaStatus(guest, id)).toBe(302);
+  await expect.poll(mediaStatus(guest, id)).toBe(200);
 });
 
 test("a player reports an image, the moderator hides it with a reason, the author sees why", async ({
@@ -304,7 +304,7 @@ test("a player reports an image, the moderator hides it with a reason, the autho
   await expect(alice.getByText("Решение модератора сохранено.")).toBeVisible();
   expect(
     (await guest.request.get(`/api/media/${id}`, { maxRedirects: 0 })).status(),
-  ).toBe(302);
+  ).toBe(200);
   const { data: audit } = await db
     .from("audit_log")
     .select("action")

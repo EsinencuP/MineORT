@@ -19,7 +19,7 @@ export function GalleryCard({
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={`/api/media/${item.id}`}
+        src={`/api/media/${item.id}?size=thumb`}
         alt={alt}
         width={item.width}
         height={item.height}

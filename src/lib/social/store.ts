@@ -4,16 +4,28 @@ import { db } from "@/lib/supabase-admin";
 import { SocialError } from "./errors";
 import {
   MAX_IMAGES_PER_POST,
-  discardMedia,
+  discardUnpublishedMedia,
   ingestUploads,
   releaseUnusedMedia,
   type MediaRow,
 } from "./media";
 import { moderateMedia } from "./gallery";
 import { canSeePost, type Viewer } from "./viewer";
+import { discussionsEnabled, threadVisible } from "@/lib/community/discussions";
+import { EVENT_ID } from "./events";
+import { getMarker, getMarkerViewer } from "@/lib/map/markers";
+import { getCollection } from "@/lib/map/collections";
+import { isEnabled } from "@/lib/flags";
 
 export const PAGE_SIZE = 20;
-export type FeedFilter = "all" | "news" | "posts";
+export type FeedFilter = "all" | "news" | "posts" | "following";
+export const POST_REACTIONS = {
+  like: "Нравится",
+  fire: "Огонь",
+  build: "Отличная стройка",
+  wow: "Впечатляет",
+} as const;
+type Reaction = keyof typeof POST_REACTIONS;
 
 export type FeedPost = {
   id: string;
@@ -24,10 +36,17 @@ export type FeedPost = {
   createdAt: string;
   editedAt: string | null;
   author: { id: string; name: string; nick: string | null };
-  images: { id: string; width: number; height: number }[];
+  images: { id: string; width: number; height: number; caption: string }[];
   likes: number;
   liked: boolean;
   mine: boolean;
+  reactions: Record<Reaction, { count: number; mine: boolean }>;
+  linked: {
+    type: "marker" | "event" | "project" | "guild" | "collection";
+    id: string;
+  } | null;
+  followingAuthor: boolean;
+  bookmarked: boolean;
 };
 
 async function withinLimit(key: string, windowSeconds: number, limit: number) {
@@ -82,29 +101,53 @@ async function hydrate(
   viewer: Viewer,
 ): Promise<FeedPost[]> {
   const ids = rows.map((r) => r.id as string);
-  const [authors, atts, likes] = await Promise.all([
-    authorsOf([...new Set(rows.map((r) => r.author_id as string))]),
+  const authorIds = [...new Set(rows.map((r) => r.author_id as string))];
+  const advanced = discussionsEnabled();
+  const [authors, atts, likes, follows, bookmarks] = await Promise.all([
+    authorsOf(authorIds),
     ids.length
       ? db()
           .from("media_attachments")
           .select(
-            "target_id, position, media:media_id (id, width, height, deleted_at, moderation_status)",
+            "target_id, position, caption, media:media_id (id, width, height, visibility, uploader_id, deleted_at, moderation_status)",
           )
           .eq("target_type", "post")
           .in("target_id", ids)
           .order("position")
       : Promise.resolve({ data: [] }),
     ids.length
-      ? db().from("reactions").select("post_id, user_id").in("post_id", ids)
+      ? db()
+          .from("reactions")
+          .select("post_id, user_id, kind")
+          .in("post_id", ids)
+      : Promise.resolve({ data: [] }),
+    advanced && viewer.userId && ids.length
+      ? db()
+          .from("community_follows")
+          .select("target_id")
+          .eq("user_id", viewer.userId)
+          .eq("target_type", "author")
+          .in("target_id", authorIds)
+      : Promise.resolve({ data: [] }),
+    advanced && viewer.userId && ids.length
+      ? db()
+          .from("community_bookmarks")
+          .select("target_id")
+          .eq("user_id", viewer.userId)
+          .eq("target_type", "post")
+          .in("target_id", ids)
       : Promise.resolve({ data: [] }),
   ]);
   const imagesOf = new Map<string, FeedPost["images"]>();
   for (const a of (atts.data ?? []) as unknown as {
     target_id: string;
+    caption: string | null;
     media: {
       id: string;
       width: number;
       height: number;
+      visibility: string;
+      uploader_id: string;
       deleted_at: string | null;
       moderation_status: string;
     } | null;
@@ -112,40 +155,134 @@ async function hydrate(
     if (
       !a.media ||
       a.media.deleted_at ||
-      a.media.moderation_status !== "approved"
+      a.media.moderation_status !== "approved" ||
+      (a.media.visibility !== "public" &&
+        a.media.uploader_id !== viewer.userId &&
+        !viewer.canModerate)
     )
       continue;
     const list = imagesOf.get(a.target_id) ?? [];
-    list.push({ id: a.media.id, width: a.media.width, height: a.media.height });
+    list.push({
+      id: a.media.id,
+      width: a.media.width,
+      height: a.media.height,
+      caption: a.caption ?? "",
+    });
     imagesOf.set(a.target_id, list);
   }
-  const likeCount = new Map<string, number>();
-  const liked = new Set<string>();
+  const reactionsByPost = new Map<string, FeedPost["reactions"]>();
+  const emptyReactions = () => ({
+    like: { count: 0, mine: false },
+    fire: { count: 0, mine: false },
+    build: { count: 0, mine: false },
+    wow: { count: 0, mine: false },
+  });
   for (const l of (likes.data ?? []) as {
     post_id: string;
     user_id: string;
+    kind: Reaction;
   }[]) {
-    likeCount.set(l.post_id, (likeCount.get(l.post_id) ?? 0) + 1);
-    if (l.user_id === viewer.userId) liked.add(l.post_id);
+    const counts = reactionsByPost.get(l.post_id) ?? emptyReactions();
+    counts[l.kind].count++;
+    if (l.user_id === viewer.userId) counts[l.kind].mine = true;
+    reactionsByPost.set(l.post_id, counts);
   }
-  return rows.map((r) => ({
-    id: r.id as string,
-    kind: r.kind as "post" | "news",
-    body: r.body as string,
-    visibility: r.visibility as string,
-    pinned: r.pinned as boolean,
-    createdAt: r.created_at as string,
-    editedAt: (r.edited_at as string | null) ?? null,
-    author: authors.get(r.author_id as string) ?? {
-      id: r.author_id as string,
-      name: "Игрок",
-      nick: null,
-    },
-    images: imagesOf.get(r.id as string) ?? [],
-    likes: likeCount.get(r.id as string) ?? 0,
-    liked: liked.has(r.id as string),
-    mine: r.author_id === viewer.userId,
-  }));
+  const followedAuthors = new Set(
+    (follows.data ?? []).map((row) => row.target_id),
+  );
+  const bookmarkedPosts = new Set(
+    (bookmarks.data ?? []).map((row) => row.target_id),
+  );
+  return rows.map((r) => {
+    const images = imagesOf.get(r.id as string) ?? [];
+    const cover = images.findIndex((image) => image.id === r.cover_media_id);
+    if (cover > 0) images.unshift(...images.splice(cover, 1));
+    const reactions = reactionsByPost.get(r.id as string) ?? emptyReactions();
+    return {
+      id: r.id as string,
+      kind: r.kind as "post" | "news",
+      body: r.body as string,
+      visibility: r.visibility as string,
+      pinned: r.pinned as boolean,
+      createdAt: r.created_at as string,
+      editedAt: (r.edited_at as string | null) ?? null,
+      author: authors.get(r.author_id as string) ?? {
+        id: r.author_id as string,
+        name: "Игрок",
+        nick: null,
+      },
+      images,
+      likes: reactions.like.count,
+      liked: reactions.like.mine,
+      mine: r.author_id === viewer.userId,
+      reactions,
+      linked:
+        r.linked_type && r.linked_id
+          ? ({ type: r.linked_type, id: r.linked_id } as FeedPost["linked"])
+          : null,
+      followingAuthor: followedAuthors.has(r.author_id as string),
+      bookmarked: bookmarkedPosts.has(r.id as string),
+    };
+  });
+}
+
+const POST_CARD_COLUMNS =
+  "id, author_id, kind, body, visibility, pinned, created_at, edited_at, linked_type, linked_id, cover_media_id";
+
+export async function getFeedPost(viewer: Viewer, id: string) {
+  if (!EVENT_ID.test(id)) return null;
+  const { data, error } = await db()
+    .from("posts")
+    .select(POST_CARD_COLUMNS)
+    .eq("id", id)
+    .eq("moderation_status", "approved")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw new Error(`post lookup: ${error.message}`);
+  if (!data || !canSeePost(viewer, data)) return null;
+  return (await hydrate([data], viewer))[0];
+}
+
+export async function postLink(
+  viewer: Viewer,
+  link: FeedPost["linked"],
+): Promise<{ href: string; label: string } | null> {
+  if (!link || !EVENT_ID.test(link.id)) return null;
+  const { type, id } = link;
+  if (type === "collection") {
+    return (await getCollection(viewer.userId, id))
+      ? { href: `/map/collections/${id}`, label: "Открыть подборку" }
+      : null;
+  }
+  if (type === "marker") {
+    if (
+      !isEnabled("ff_p1c_atlas") ||
+      !(await getMarker(await getMarkerViewer(), id))
+    )
+      return null;
+    return { href: `/map?m=${id}`, label: "Открыть карту" };
+  }
+  if (type === "guild" && isEnabled("ff_p1b_guilds")) {
+    const { data } = await db()
+      .from("guilds")
+      .select("slug")
+      .eq("id", id)
+      .eq("status", "active")
+      .maybeSingle();
+    return data
+      ? { href: `/guilds/${data.slug}`, label: "Открыть гильдию" }
+      : null;
+  }
+  if (!(await threadVisible(viewer, type, id))) return null;
+  if (type === "event") {
+    return {
+      href: isEnabled("ff_community_events")
+        ? `/social/calendar/${id}`
+        : `/social/calendar#e-${id}`,
+      label: "Открыть событие",
+    };
+  }
+  return { href: `/social/projects/${id}`, label: "Помочь стройке" };
 }
 
 /** The feed as this viewer is allowed to see it (SC-SOC-06): the filter is applied in the query. */
@@ -156,9 +293,7 @@ export async function listFeed(
 ): Promise<{ posts: FeedPost[]; hasMore: boolean }> {
   let q = db()
     .from("posts")
-    .select(
-      "id, author_id, kind, body, visibility, pinned, created_at, edited_at",
-    )
+    .select(POST_CARD_COLUMNS)
     .eq("moderation_status", "approved")
     .is("deleted_at", null);
   if (viewer.cls === "guest")
@@ -171,6 +306,20 @@ export async function listFeed(
   if (filter === "news") q = q.eq("kind", "news");
   if (filter === "posts") q = q.eq("kind", "post");
   const from = page * PAGE_SIZE;
+  if (filter === "following") {
+    if (!viewer.userId || !discussionsEnabled())
+      return { posts: [], hasMore: false };
+    const { data, error } = await db()
+      .rpc("community_followed_posts", { p_user: viewer.userId })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, from + PAGE_SIZE);
+    if (error) throw new Error(`subscriptions feed: ${error.message}`);
+    return {
+      posts: await hydrate(data.slice(0, PAGE_SIZE), viewer),
+      hasMore: data.length > PAGE_SIZE,
+    };
+  }
   const { data, error } = await q
     .order("pinned", { ascending: false })
     .order("created_at", { ascending: false })
@@ -205,6 +354,9 @@ export type NewPost = {
   pinned: boolean;
   incomingPaths: string[];
   galleryMediaIds: string[];
+  linked?: FeedPost["linked"];
+  coverPosition?: number;
+  captions?: string[];
 };
 
 export async function createPost(viewer: Viewer, input: NewPost) {
@@ -219,6 +371,9 @@ export async function createPost(viewer: Viewer, input: NewPost) {
   const visibility = kind === "news" ? "public" : input.visibility;
   const pinned = kind === "news" && viewer.canModerate && input.pinned;
   const galleryIds = [...new Set(input.galleryMediaIds)];
+  const linked = discussionsEnabled() ? (input.linked ?? null) : null;
+  if (linked && !(await postLink(viewer, linked)))
+    throw new SocialError("thread_not_found");
   if (input.incomingPaths.length + galleryIds.length > MAX_IMAGES_PER_POST)
     throw new SocialError("too_many_images");
   if (!(await withinLimit(`post:${viewer.userId}`, 3600, 10)))
@@ -228,12 +383,17 @@ export async function createPost(viewer: Viewer, input: NewPost) {
   if (galleryIds.length > 0) {
     const { data } = await db()
       .from("media")
-      .select("id")
+      .select("id, visibility")
       .in("id", galleryIds)
       .eq("uploader_id", viewer.userId)
       .is("deleted_at", null);
     if ((data ?? []).length !== galleryIds.length)
       throw new SocialError("media_not_found");
+    if (
+      visibility === "public" &&
+      data?.some((row) => row.visibility !== "public")
+    )
+      throw new SocialError("post_media_private");
   }
 
   // upload checks come first: nothing is published when a file is refused (SC-SOC-05)
@@ -244,13 +404,22 @@ export async function createPost(viewer: Viewer, input: NewPost) {
       input.incomingPaths,
       visibility,
     );
+    const mediaIds = [...uploaded.map((m) => m.id), ...galleryIds];
     const { data: post, error } = await db()
       .from("posts")
-      .insert({ author_id: viewer.userId, kind, body, visibility, pinned })
+      .insert({
+        author_id: viewer.userId,
+        kind,
+        body,
+        visibility,
+        pinned,
+        linked_type: linked?.type,
+        linked_id: linked?.id,
+        cover_media_id: mediaIds[(input.coverPosition ?? 1) - 1] ?? null,
+      })
       .select("id")
       .single();
     if (error || !post) throw new Error(`post insert: ${error?.message}`);
-    const mediaIds = [...uploaded.map((m) => m.id), ...galleryIds];
     if (mediaIds.length > 0) {
       const { error: attErr } = await db()
         .from("media_attachments")
@@ -260,6 +429,7 @@ export async function createPost(viewer: Viewer, input: NewPost) {
             target_type: "post",
             target_id: post.id,
             position: i,
+            caption: input.captions?.[i]?.slice(0, 200) ?? "",
           })),
         );
       if (attErr) {
@@ -274,7 +444,7 @@ export async function createPost(viewer: Viewer, input: NewPost) {
       });
     return post.id as string;
   } catch (e) {
-    await discardMedia(uploaded);
+    await discardUnpublishedMedia(uploaded);
     throw e;
   }
 }
@@ -448,6 +618,27 @@ export async function listOpenReports() {
         .in("id", markerIds)
     : { data: [] };
   const byMarker = new Map((markers ?? []).map((m) => [m.id as string, m]));
+  const commentIds = reports
+    .filter((r) => r.target_type === "comment")
+    .map((r) => r.target_id as string);
+  const smsIds = reports
+    .filter((r) => r.target_type === "sms")
+    .map((r) => r.target_id as string);
+  const [comments, messages] = await Promise.all([
+    commentIds.length
+      ? db()
+          .from("community_comments")
+          .select("id,author_id,body,hidden_at")
+          .in("id", commentIds)
+      : Promise.resolve({ data: [], error: null }),
+    smsIds.length
+      ? db().from("sms_messages").select("id,sender_id,body").in("id", smsIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (comments.error || messages.error)
+    throw new Error("moderation attachments lookup failed");
+  const byComment = new Map(comments.data.map((row) => [row.id, row]));
+  const byMessage = new Map(messages.data.map((row) => [row.id, row]));
   const [{ data: posts }, { data: media }, { data: captions }] =
     await Promise.all([
       postIds.length
@@ -477,6 +668,8 @@ export async function listOpenReports() {
       ...(posts ?? []).map((p) => p.author_id as string),
       ...(media ?? []).map((m) => m.uploader_id as string),
       ...(markers ?? []).map((m) => m.author_id as string),
+      ...comments.data.map((comment) => comment.author_id as string),
+      ...messages.data.map((message) => message.sender_id as string),
     ]),
   ]);
   const byPost = new Map((posts ?? []).map((p) => [p.id as string, p]));
@@ -490,6 +683,27 @@ export async function listOpenReports() {
       reason: r.reason as string,
       createdAt: r.created_at as string,
     };
+    if (r.target_type === "sms" || r.target_type === "comment") {
+      const message =
+        r.target_type === "sms" ? byMessage.get(r.target_id) : null;
+      const comment =
+        r.target_type === "comment" ? byComment.get(r.target_id) : null;
+      const authorId = message?.sender_id ?? comment?.author_id;
+      return {
+        ...base,
+        kind: r.target_type as "sms" | "comment",
+        postId: r.target_id as string,
+        mediaId: null,
+        postBody: message?.body ?? comment?.body ?? "",
+        postKind: r.target_type as string,
+        postState: comment?.hidden_at
+          ? "hidden"
+          : message || comment
+            ? "approved"
+            : "gone",
+        author: authorId ? (authors.get(authorId)?.name ?? "Игрок") : "—",
+      };
+    }
     if (r.target_type === "marker") {
       const m = byMarker.get(r.target_id as string);
       return {
@@ -564,10 +778,29 @@ export async function decideReport(
     .maybeSingle();
   if (!rep) throw new SocialError("report_not_found");
   if (rep.status !== "open") throw new SocialError("report_closed");
-  const targetType = rep.target_type as "post" | "media" | "marker";
+  const targetType = rep.target_type as
+    "post" | "media" | "marker" | "sms" | "comment";
   const targetId = rep.target_id as string;
 
-  if (targetType === "marker") {
+  if (targetType === "comment") {
+    if (decision !== "dismiss") {
+      const { error } = await db()
+        .from("community_comments")
+        .update({ hidden_at: new Date().toISOString(), pinned: false })
+        .eq("id", targetId);
+      if (error) throw new Error(`hide comment: ${error.message}`);
+    }
+  } else if (targetType === "sms") {
+    if (decision !== "dismiss") {
+      const { error } = await db()
+        .from("community_notifications")
+        .update({ removed_at: new Date().toISOString() })
+        .eq("target_type", "sms")
+        .eq("target_id", targetId);
+      if (error)
+        throw new Error(`stop reported message delivery: ${error.message}`);
+    }
+  } else if (targetType === "marker") {
     if (decision !== "dismiss")
       await db()
         .from("map_markers")

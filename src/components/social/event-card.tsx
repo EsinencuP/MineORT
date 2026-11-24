@@ -1,8 +1,10 @@
+import Link from "next/link";
 import {
   cancelEventAction,
   joinEventAction,
   leaveEventAction,
   rescheduleEventAction,
+  waitlistEventAction,
 } from "@/app/actions/social";
 import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -16,13 +18,22 @@ export function EventCard({
   event: e,
   viewer,
   back,
+  advanced = false,
+  detail = false,
+  mapHref,
 }: {
   event: EventView;
   viewer: Viewer;
   back: string;
+  advanced?: boolean;
+  detail?: boolean;
+  mapHref?: string;
 }) {
-  const full = e.seatsLimit !== null && e.attendees >= e.seatsLimit;
+  const full =
+    e.seatsLimit !== null && e.attendees + e.reserved >= e.seatsLimit;
   const open = !e.cancelled && !e.past;
+  const signupOpen = open && !e.started;
+  const waiting = advanced && e.waiting;
   return (
     <Card
       id={`e-${e.id}`}
@@ -46,10 +57,20 @@ export function EventCard({
       </header>
 
       <p className="text-sm">
-        <LocalTime iso={e.startsAt} className="font-semibold" /> ·{" "}
-        {e.durationMinutes >= 60
-          ? `${Math.floor(e.durationMinutes / 60)} ч${e.durationMinutes % 60 ? ` ${e.durationMinutes % 60} мин` : ""}`
-          : `${e.durationMinutes} мин`}
+        <LocalTime iso={e.startsAt} className="font-semibold" />{" "}
+        {advanced ? (
+          <>
+            — <LocalTime iso={e.endsAt} />
+          </>
+        ) : (
+          <>
+            {" "}
+            ·{" "}
+            {e.durationMinutes >= 60
+              ? `${Math.floor(e.durationMinutes / 60)} ч${e.durationMinutes % 60 ? ` ${e.durationMinutes % 60} мин` : ""}`
+              : `${e.durationMinutes} мин`}
+          </>
+        )}
       </p>
       {e.rescheduledFrom && open && (
         <p className="text-ink-muted text-xs">
@@ -69,6 +90,32 @@ export function EventCard({
       )}
       {e.cancelled && e.cancelReason && (
         <p className="text-sm">Причина отмены: {e.cancelReason}</p>
+      )}
+      {advanced && (
+        <div className="flex flex-wrap gap-x-4 text-sm">
+          {!detail && (
+            <Link
+              href={`/social/calendar/${e.id}`}
+              className="text-brand-700 inline-flex min-h-11 items-center underline"
+            >
+              О событии
+            </Link>
+          )}
+          {mapHref && (
+            <Link
+              href={mapHref}
+              className="text-brand-700 inline-flex min-h-11 items-center underline"
+            >
+              Место в атласе
+            </Link>
+          )}
+          <a
+            href={`/api/calendar/event/${e.id}`}
+            className="text-brand-700 inline-flex min-h-11 items-center underline"
+          >
+            Добавить в календарь
+          </a>
+        </div>
       )}
       <p className="text-ink-muted text-xs">
         Организатор: {e.organizerName} · записалось {e.attendees}
@@ -93,7 +140,58 @@ export function EventCard({
                 </PendingButton>
               </form>
             </>
-          ) : viewer.canPublish ? (
+          ) : viewer.canPublish &&
+            signupOpen &&
+            (waiting || (advanced && full)) ? (
+            <>
+              {waiting && (
+                <StatusBadge tone={e.offeredUntil ? "ok" : "info"}>
+                  {e.offeredUntil ? (
+                    <>
+                      Место до <LocalTime iso={e.offeredUntil} />
+                    </>
+                  ) : (
+                    "Вы в листе ожидания"
+                  )}
+                </StatusBadge>
+              )}
+              <form
+                action={waitlistEventAction}
+                className="flex flex-wrap gap-2"
+              >
+                <input type="hidden" name="event_id" value={e.id} />
+                <input type="hidden" name="return_to" value={back} />
+                {!waiting && (
+                  <PendingButton
+                    name="event_action"
+                    value="waitlist"
+                    pendingText="Добавляем…"
+                  >
+                    Встать в очередь
+                  </PendingButton>
+                )}
+                {e.offeredUntil && (
+                  <PendingButton
+                    name="event_action"
+                    value="confirm"
+                    pendingText="Подтверждаем…"
+                  >
+                    Подтвердить место
+                  </PendingButton>
+                )}
+                {waiting && (
+                  <PendingButton
+                    name="event_action"
+                    value="leave_waitlist"
+                    variant="ghost"
+                    pendingText="Отменяем…"
+                  >
+                    Выйти из очереди
+                  </PendingButton>
+                )}
+              </form>
+            </>
+          ) : viewer.canPublish && signupOpen ? (
             <form action={joinEventAction}>
               <input type="hidden" name="event_id" value={e.id} />
               <input type="hidden" name="return_to" value={back} />
@@ -105,11 +203,11 @@ export function EventCard({
                 {full ? "Мест нет" : "Записаться"}
               </PendingButton>
             </form>
-          ) : (
+          ) : !viewer.canPublish ? (
             <span className="text-ink-muted text-sm">
               Записаться могут участники сервера.
             </span>
-          )}
+          ) : null}
 
           {e.canManage && (
             <div className="ml-auto flex flex-wrap gap-1">

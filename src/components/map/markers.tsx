@@ -4,6 +4,7 @@
 // marker card and the editor on the right, the icon chooser and the colour chooser. Sizes in GUI px.
 
 import { useMemo, useState } from "react";
+import { bookmarkAction } from "@/app/actions/discussions";
 import { toolIcon, type AtlasTheme } from "./atlas-theme";
 import { IconButton, Panel, TextButton } from "./atlas-ui";
 import { fmtDistance, PALETTE } from "./drawing";
@@ -397,6 +398,21 @@ export function MarkerCard(props: {
         <TextButton theme={theme} icon="target" onClick={props.onGoto}>
           На карте
         </TextButton>
+        {m.bookmarked !== undefined && (
+          <form action={bookmarkAction} className="col-span-2">
+            <input type="hidden" name="type" value="marker" />
+            <input type="hidden" name="target" value={m.id} />
+            <input type="hidden" name="return_to" value={`/map?m=${m.id}`} />
+            <input
+              type="hidden"
+              name="remove"
+              value={m.bookmarked ? "1" : "0"}
+            />
+            <TextButton theme={theme} type="submit" className="w-full">
+              {m.bookmarked ? "Убрать закладку" : "В закладки"}
+            </TextButton>
+          </form>
+        )}
         {m.canDelete && (
           <TextButton theme={theme} icon="trash" onClick={props.onDelete}>
             Удалить
@@ -432,6 +448,7 @@ export function MarkerCard(props: {
 /* ------------------------------------------------------------------ editor */
 
 export type Draft = {
+  boundary?: MapMarker["boundary"];
   id: string | null;
   kind: "point" | "label";
   dim: "overworld" | "nether";
@@ -460,6 +477,8 @@ export function MarkerEditor(props: {
   onSave: () => void;
   onCancel: () => void;
   onDelete: () => void;
+  onBoundary: () => void;
+  onClearBoundary: () => void;
 }) {
   const { theme, g, draft: d } = props;
   const set = (p: Partial<Draft>) => props.onChange({ ...d, ...p });
@@ -507,6 +526,26 @@ export function MarkerEditor(props: {
           props.onSave();
         }}
       >
+        {d.kind === "label" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="atlas-inset px-2 py-1"
+              onClick={props.onBoundary}
+            >
+              {d.boundary ? "Изменить область" : "Обвести область"}
+            </button>
+            {d.boundary && (
+              <button
+                type="button"
+                className="atlas-inset px-2 py-1"
+                onClick={props.onClearBoundary}
+              >
+                Удалить контур
+              </button>
+            )}
+          </div>
+        )}
         <label style={{ color: "var(--ink-soft)" }} htmlFor="marker-name">
           Название
         </label>

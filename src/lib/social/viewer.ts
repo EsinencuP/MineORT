@@ -71,6 +71,9 @@ export function canSeePost(
   if (v.cls === "guest")
     return post.kind === "news" && post.visibility === "public";
   if (post.visibility === "public") return true;
-  if (post.visibility === "private") return post.author_id === v.userId;
+  if (post.visibility === "private")
+    return (
+      (v.cls === "member" || v.cls === "staff") && post.author_id === v.userId
+    );
   return false; // guild visibility arrives with the guild wave
 }

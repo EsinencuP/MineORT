@@ -1,5 +1,6 @@
 // Who sees and changes a marker (R13, R18), and what a valid marker is. Pure, so it is tested alone.
 import icons from "@/components/map/icons.json";
+import { validPolygon, type Vertex } from "./polygon";
 
 export type Visibility = "public" | "guild" | "private";
 export type ModerationStatus = "pending" | "approved" | "hidden";
@@ -26,6 +27,7 @@ export const GUEST_VIEWER: MarkerViewer = {
 };
 
 export type MarkerRow = {
+  boundary?: Vertex[] | null;
   id: string;
   author_id: string;
   kind: MarkerKind;
@@ -46,6 +48,7 @@ export type MarkerRow = {
 };
 
 export type MarkerInput = {
+  boundary?: Vertex[] | null;
   kind: MarkerKind;
   dim: Dim;
   x: number;
@@ -124,6 +127,9 @@ export function parseMarkerInput(raw: unknown): MarkerInput | null {
         : undefined;
   if (
     !kind ||
+    (r.boundary !== undefined &&
+      r.boundary !== null &&
+      (kind !== "label" || !validPolygon(r.boundary))) ||
     name.length < 1 ||
     name.length > 60 ||
     description.length > 1000 ||
@@ -142,6 +148,9 @@ export function parseMarkerInput(raw: unknown): MarkerInput | null {
   )
     return null;
   return {
+    ...(r.boundary !== undefined
+      ? { boundary: r.boundary as Vertex[] | null }
+      : {}),
     kind,
     dim: r.dim,
     x,

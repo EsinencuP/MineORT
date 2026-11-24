@@ -14,6 +14,11 @@ const MODULE_WAVE = {
   ff_p1c_atlas: "ff_p1c",
   ff_p1c_requests: "ff_p1c",
   ff_social_comments: "ff_p1a",
+  ff_community_events: "ff_p1b",
+  ff_community_notifications: "ff_p1b",
+  ff_community_sms: "ff_p1b",
+  ff_community_progress: "ff_p1c",
+  ff_community_collections: "ff_p1c",
 } as const;
 
 export type WaveFlag = (typeof WAVE_FLAGS)[number];

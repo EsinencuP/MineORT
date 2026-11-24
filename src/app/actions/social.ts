@@ -21,8 +21,10 @@ import {
 } from "@/lib/social/store";
 import {
   cancelEvent,
+  changeEventSignup,
   createEvent,
   joinEvent,
+  inviteEventPlayer,
   leaveEvent,
   rescheduleEvent,
 } from "@/lib/social/events";
@@ -63,16 +65,39 @@ async function run(
   url.searchParams.delete("error");
   url.searchParams.delete("ok");
   url.searchParams.set(error ? "error" : "ok", error ?? okKey);
-  redirect(url.pathname + url.search);
+  redirect(url.pathname + url.search + url.hash);
 }
 
 const visibilityOf = (v: string): "public" | "private" =>
   v === "private" ? "private" : "public";
 
+function linkedObject(value: string) {
+  const path = URL.parse(value, "https://mineort.invalid");
+  const marker = path?.pathname === "/map" ? path.searchParams.get("m") : null;
+  if (marker) return { type: "marker" as const, id: marker };
+  const collection = /^\/map\/collections\/([0-9a-f-]+)$/i.exec(
+    path?.pathname ?? "",
+  );
+  if (collection) return { type: "collection" as const, id: collection[1] };
+  const match = /^\/social\/(calendar|projects)\/([0-9a-f-]+)$/i.exec(
+    path?.pathname ?? "",
+  );
+  return match
+    ? {
+        type:
+          match[1] === "calendar" ? ("event" as const) : ("project" as const),
+        id: match[2],
+      }
+    : null;
+}
+
 export async function publishPostAction(formData: FormData) {
   return run(formData, "/social", "posted", (viewer) =>
     createPost(viewer, {
       body: str(formData.get("body")),
+      linked: linkedObject(str(formData.get("linked"))),
+      coverPosition: Number(formData.get("cover_position") ?? 1),
+      captions: str(formData.get("captions")).split(/\r?\n/),
       kind: str(formData.get("kind")) === "news" ? "news" : "post",
       visibility: visibilityOf(str(formData.get("visibility"))),
       pinned: formData.get("pinned") === "on",
@@ -258,6 +283,10 @@ export async function createEventAction(formData: FormData) {
         place: str(formData.get("place")),
         category: str(formData.get("category")),
         seatsLimit: num(formData.get("seats")),
+        endsAt: str(formData.get("ends_at")),
+        visibility: str(formData.get("visibility")),
+        markerId: str(formData.get("marker_id")),
+        projectId: str(formData.get("project_id")),
       }),
     P1B,
   );
@@ -279,6 +308,41 @@ export async function leaveEventAction(formData: FormData) {
     "/social/calendar",
     "left",
     (viewer) => leaveEvent(viewer, str(formData.get("event_id"))),
+    P1B,
+  );
+}
+
+export async function waitlistEventAction(formData: FormData) {
+  await requireFlag("ff_community_events");
+  const action = str(formData.get("event_action"));
+  if (
+    action !== "waitlist" &&
+    action !== "confirm" &&
+    action !== "leave_waitlist"
+  )
+    return;
+  return run(
+    formData,
+    "/social/calendar",
+    action,
+    (viewer) =>
+      changeEventSignup(viewer, str(formData.get("event_id")), action),
+    P1B,
+  );
+}
+
+export async function inviteEventPlayerAction(formData: FormData) {
+  await requireFlag("ff_community_events");
+  return run(
+    formData,
+    "/social/calendar",
+    "invited",
+    (viewer) =>
+      inviteEventPlayer(
+        viewer,
+        str(formData.get("event_id")),
+        str(formData.get("nick")),
+      ),
     P1B,
   );
 }

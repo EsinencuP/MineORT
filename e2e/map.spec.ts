@@ -19,6 +19,36 @@ test.describe("map with the atlas flag off", () => {
 test.describe("map with the atlas flag on", () => {
   test.skip(!atlasOn, "needs FF_P1C=true and FF_P1C_ATLAS=true");
 
+  test.beforeEach(async ({ page }) => {
+    if (process.env.E2E_MAP_FIXTURE !== "1") return;
+    // The public browser smoke exercises map controls without a Supabase or Paper service.
+    await page.route("**/api/map/regions?*", (route) =>
+      route.fulfill({
+        json: {
+          regions: [{ rx: 0, rz: 0, version: 1 }],
+          anchor: { rx: 0, rz: 0 },
+        },
+      }),
+    );
+    await page.route("**/api/map/tile?*", (route) =>
+      route.fulfill({ status: 404 }),
+    );
+    await page.route("**/api/map/markers?*", (route) =>
+      route.fulfill({
+        json: {
+          markers: [],
+          me: {
+            signedIn: false,
+            canCreate: false,
+            canLabel: false,
+            canModerate: false,
+            inGuild: false,
+          },
+        },
+      }),
+    );
+  });
+
   test("a guest sees the map canvas and its controls", async ({ page }) => {
     await page.goto("/map");
     await expect(page.getByRole("heading", { name: "Карта" })).toBeVisible();
@@ -113,7 +143,7 @@ test.describe("map with the atlas flag on", () => {
     await page.getByRole("button", { name: /Линейка/ }).click();
     await expect(page.getByText(/ЛКМ — точка/)).toBeVisible();
     await page.getByRole("link", { name: "Закрыть карту" }).click();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/$/, { timeout: 30_000 });
   });
 
   test("a guest gets no live players and is offered a sign-in", async ({

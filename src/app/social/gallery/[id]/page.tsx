@@ -61,6 +61,10 @@ export default async function GalleryItemPage({
   const back =
     listBack ?? (isOwner ? "/social/gallery?mine=1" : "/social/gallery");
   const here = withBack(`/social/gallery/${id}`, listBack);
+  const bookmarks =
+    discussionsEnabled() && viewer.userId && viewer.cls !== "restricted"
+      ? await isBookmarked(viewer.userId, "media", id)
+      : null;
   const hasFilters = !!listBack && listBack !== "/social/gallery";
   const field =
     "bg-paper text-ink border-line min-h-11 rounded-xl border px-3 text-sm";
@@ -127,6 +131,14 @@ export default async function GalleryItemPage({
         </div>
 
         <Card className="flex flex-col gap-3">
+          {bookmarks !== null && (
+            <BookmarkControl
+              type="media"
+              id={id}
+              saved={bookmarks}
+              back={here}
+            />
+          )}
           {item.caption && (
             <h1 className="font-pixel text-2xl leading-snug break-words">
               {item.caption}
@@ -260,3 +272,5 @@ export default async function GalleryItemPage({
     </div>
   );
 }
+import { BookmarkControl } from "@/components/social/thread-controls";
+import { discussionsEnabled, isBookmarked } from "@/lib/community/discussions";

@@ -21,3 +21,10 @@ export async function markViewer(userId: string): Promise<void> {
     .upsert({ user_id: userId, seen_at: new Date().toISOString() });
   if (error) throw new Error(`map_viewers upsert: ${error.message}`);
 }
+
+export async function markLiveSession(sessionId: string) {
+  const { error } = await db()
+    .from("map_live_watches")
+    .upsert({ session_id: sessionId, seen_at: new Date().toISOString() });
+  if (error) throw new Error(`map live watch: ${error.message}`);
+}

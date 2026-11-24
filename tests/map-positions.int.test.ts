@@ -33,8 +33,9 @@ vi.mock("@/lib/map/realtime", async (original) => {
 
 import { POST as positionsRoute } from "@/app/api/bridge/v1/map/positions/route";
 import { signRealtimeToken } from "@/lib/map/realtime";
-import { markViewer } from "@/lib/map/viewers";
+import { markLiveSession } from "@/lib/map/viewers";
 import { loadViewer } from "@/lib/map/viewer";
+import { sessionTopic } from "@/lib/map/visibility";
 
 const enabled =
   !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -105,7 +106,6 @@ const dot = (mcUuid: string) => ({
   z: -8.26,
   yaw: 90,
 });
-const topics = () => sent.messages.map((m) => m.topic).sort();
 const namesIn = (topic: string) =>
   sent.messages
     .filter((m) => m.topic === topic)
@@ -120,6 +120,25 @@ describe.skipIf(!enabled)("live positions (staging)", () => {
   let owner: Awaited<ReturnType<typeof member>>;
   let hidden: Awaited<ReturnType<typeof member>>;
   let loner: Awaited<ReturnType<typeof member>>;
+  let adminSession = "";
+  let ownerSession = "";
+  let lonerSession = "";
+
+  async function watch(userId: string, staff = false) {
+    const id = randomUUID();
+    const { error } = await db()
+      .from("user_sessions")
+      .insert({
+        id,
+        user_id: userId,
+        token_hash: randomUUID(),
+        is_admin_session: staff,
+        expires_at: new Date(Date.now() + 600_000).toISOString(),
+      });
+    if (error) throw error;
+    await markLiveSession(id);
+    return id;
+  }
 
   beforeAll(async () => {
     serverId = await createBridgeServer(`pos-int-${Date.now()}`);
@@ -141,14 +160,25 @@ describe.skipIf(!enabled)("live positions (staging)", () => {
       description: "",
       ownerNick: owner.nickname,
     });
-    // nobody has the map open at the start
-    await db().from("map_viewers").delete().neq("user_id", randomUUID());
+    const totp = await db().from("admin_totp").insert({
+      user_id: admin.userId,
+      secret_enc: "fixture",
+      confirmed_at: new Date().toISOString(),
+    });
+    if (totp.error) throw totp.error;
+    adminSession = await watch(admin.userId, true);
+    ownerSession = await watch(owner.userId);
+    lonerSession = await watch(loner.userId);
   });
-  beforeEach(() => {
+  beforeEach(async () => {
     sent.messages.length = 0;
+    await Promise.all(
+      [adminSession, ownerSession, lonerSession].map(markLiveSession),
+    );
   });
   afterAll(async () => {
-    await db().from("map_viewers").delete().in("user_id", users);
+    await db().from("user_sessions").delete().in("user_id", users);
+    await db().from("admin_totp").delete().in("user_id", users);
     await db().from("guild_members").delete().eq("guild_id", guildId);
     await db().from("guild_ranks").delete().eq("guild_id", guildId);
     await db().from("guilds").delete().eq("id", guildId);
@@ -162,41 +192,42 @@ describe.skipIf(!enabled)("live positions (staging)", () => {
   it("sends a player who shows to everyone to all, the own guild and staff", async () => {
     const r = await send({ players: [dot(owner.mcUuid)] });
     expect(r.status).toBe(200);
-    expect(topics()).toEqual(
-      ["map:pos:admin", "map:pos:all", `map:pos:guild:${guildId}`].sort(),
-    );
-    expect(namesIn("map:pos:all")).toEqual([owner.nickname]);
+    for (const session of [adminSession, ownerSession, lonerSession])
+      expect(namesIn(sessionTopic(session))).toEqual([owner.nickname]);
   });
 
   it("keeps the height for staff and out of the public channel", async () => {
     await send({ players: [dot(owner.mcUuid)] });
-    const admin = sent.messages.find((m) => m.topic === "map:pos:admin")!;
-    const all = sent.messages.find((m) => m.topic === "map:pos:all")!;
+    const admin = sent.messages.find(
+      (m) => m.topic === sessionTopic(adminSession),
+    )!;
+    const all = sent.messages.find(
+      (m) => m.topic === sessionTopic(lonerSession),
+    )!;
     expect(admin.payload.p[0]).toMatchObject({ x: 12.5, z: -8.3, y: 70 });
     expect(all.payload.p[0]).not.toHaveProperty("y");
   });
 
   it("sends a guild-only player without a guild to staff only", async () => {
     await send({ players: [dot(hidden.mcUuid)] });
-    expect(topics()).toEqual(["map:pos:admin"]);
-    expect(namesIn("map:pos:admin")).toEqual([hidden.nickname]);
+    expect(namesIn(sessionTopic(adminSession))).toEqual([hidden.nickname]);
+    expect(namesIn(sessionTopic(ownerSession))).toEqual([]);
   });
 
   it("sends an unknown player to staff only, without a name", async () => {
     await send({ players: [dot(randomUUID())] });
-    expect(topics()).toEqual(["map:pos:admin"]);
-    expect(namesIn("map:pos:admin")).toEqual(["?"]);
+    expect(namesIn(sessionTopic(adminSession))).toEqual(["?"]);
+    expect(namesIn(sessionTopic(lonerSession))).toEqual([]);
   });
 
   it("splits one batch by visibility", async () => {
     await send({
       players: [dot(owner.mcUuid), dot(hidden.mcUuid), dot(loner.mcUuid)],
     });
-    expect(namesIn("map:pos:all").sort()).toEqual(
+    expect(namesIn(sessionTopic(lonerSession)).sort()).toEqual(
       [owner.nickname, loner.nickname].sort(),
     );
-    expect(namesIn("map:pos:admin")).toHaveLength(3);
-    expect(namesIn(`map:pos:guild:${guildId}`)).toEqual([owner.nickname]);
+    expect(namesIn(sessionTopic(adminSession))).toHaveLength(3);
   });
 
   it("refuses a bad signature and a malformed batch, and sends nothing", async () => {
@@ -206,21 +237,17 @@ describe.skipIf(!enabled)("live positions (staging)", () => {
     expect(sent.messages).toHaveLength(0);
   });
 
-  it("answers an empty batch without sending", async () => {
+  it("sends an empty snapshot to clear stale pins", async () => {
     const r = await send({ players: [] });
     expect(r.status).toBe(200);
-    expect(sent.messages).toHaveLength(0);
+    expect(
+      sent.messages.find((m) => m.topic === sessionTopic(ownerSession))?.payload
+        .p,
+    ).toEqual([]);
   });
 
-  it("asks for a batch every 10 seconds until someone watches, then every second", async () => {
-    expect((await send({ players: [] })).body.interval_ms).toBe(10_000);
-    await markViewer(owner.userId);
+  it("asks for a batch every second while a valid session watches", async () => {
     expect((await send({ players: [] })).body.interval_ms).toBe(1000);
-    await db()
-      .from("map_viewers")
-      .update({ seen_at: new Date(Date.now() - 120_000).toISOString() })
-      .eq("user_id", owner.userId);
-    expect((await send({ players: [] })).body.interval_ms).toBe(10_000);
   });
 
   it("gives a member the own guild channel and not a staff one", async () => {
@@ -254,7 +281,14 @@ describe.skipIf(!enabled)("live positions (staging)", () => {
     expect(v.staff).toBe(false);
   });
 
-  it("drops the guild channel after the member leaves, at the next token", async () => {
+  it("stops sending guild coordinates to an already subscribed session after removal", async () => {
+    await db()
+      .from("privacy_settings")
+      .update({ map_visibility: "guild" })
+      .eq("user_id", owner.userId);
+    expect((await send({ players: [dot(owner.mcUuid)] })).status).toBe(200);
+    expect(namesIn(sessionTopic(ownerSession))).toEqual([owner.nickname]);
+    sent.messages.length = 0;
     await db()
       .from("guild_members")
       .update({ status: "left", ended_at: new Date().toISOString() })
@@ -263,7 +297,17 @@ describe.skipIf(!enabled)("live positions (staging)", () => {
     expect((await loadViewer(asPlayer(owner.userId))).guildId).toBeNull();
     // the position follows the new situation at once
     await send({ players: [dot(owner.mcUuid)] });
-    expect(topics()).toEqual(["map:pos:admin", "map:pos:all"]);
+    expect(namesIn(sessionTopic(ownerSession))).toEqual([]);
+    expect(namesIn(sessionTopic(adminSession))).toEqual([owner.nickname]);
+    sent.messages.length = 0;
+    await db()
+      .from("user_sessions")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("id", ownerSession);
+    await send({ players: [dot(owner.mcUuid)] });
+    expect(
+      sent.messages.find((m) => m.topic === sessionTopic(ownerSession)),
+    ).toBeUndefined();
   });
 });
 
@@ -272,6 +316,7 @@ describe("realtime token", () => {
     process.env.SUPABASE_JWT_SECRET = "x".repeat(40);
     const { token, expiresAt } = await signRealtimeToken({
       userId: "u1",
+      sessionId: "s1",
       guildId: "g1",
       staff: false,
     });
@@ -284,8 +329,9 @@ describe("realtime token", () => {
       role: "authenticated",
       sub: "u1",
       mo_map: "1",
-      mo_guild: "g1",
+      mo_map_session: "s1",
     });
+    expect(payload).not.toHaveProperty("mo_guild");
     expect(payload).not.toHaveProperty("mo_staff");
     expect(expiresAt - (payload.iat as number)).toBe(600);
   });
@@ -293,7 +339,12 @@ describe("realtime token", () => {
   it("is refused when no signing secret is configured", async () => {
     delete process.env.SUPABASE_JWT_SECRET;
     await expect(
-      signRealtimeToken({ userId: "u1", guildId: null, staff: false }),
+      signRealtimeToken({
+        userId: "u1",
+        sessionId: "s1",
+        guildId: null,
+        staff: false,
+      }),
     ).rejects.toThrow(/SUPABASE_JWT_SECRET/);
   });
 });

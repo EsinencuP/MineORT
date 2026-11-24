@@ -5,6 +5,8 @@ export type MapVisibility = "all" | "guild";
 export const TOPIC_ALL = "map:pos:all";
 export const TOPIC_ADMIN = "map:pos:admin";
 export const guildTopic = (guildId: string) => `map:pos:guild:${guildId}`;
+export const sessionTopic = (sessionId: string) =>
+  `map:pos:session:${sessionId}`;
 
 /**
  * Channels a player's position goes to. Staff always get it, whatever the player chose (a player

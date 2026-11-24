@@ -15,19 +15,23 @@ const INT = /^-?\d{1,5}$/;
 export async function GET(req: NextRequest) {
   const off = flagGuard("ff_p1c_atlas");
   if (off) return off;
-  // a viewer loads a handful of tiles at once; this stops one address from hammering the build
+  const q = req.nextUrl.searchParams;
+  const dim = q.get("dim");
+  const rx = q.get("rx") ?? "";
+  const rz = q.get("rz") ?? "";
+  if (
+    (dim !== "overworld" && dim !== "nether") ||
+    !INT.test(rx) ||
+    !INT.test(rz)
+  ) {
+    return NextResponse.json({ error: "bad tile" }, { status: 400 });
+  }
+  // A viewer loads several tiles at once. Limit work before opening or rebuilding each tile.
   if (!(await withinRateLimit(`map:tile:${clientIp(req.headers)}`, 60, 240))) {
     return NextResponse.json(
       { error: "rate limited" },
       { status: 429, headers: { "Retry-After": "10" } },
     );
-  }
-  const q = req.nextUrl.searchParams;
-  const dim = q.get("dim");
-  const rx = q.get("rx") ?? "";
-  const rz = q.get("rz") ?? "";
-  if ((dim !== "overworld" && dim !== "nether") || !INT.test(rx) || !INT.test(rz)) {
-    return NextResponse.json({ error: "bad tile" }, { status: 400 });
   }
   const serverId = await mapServerId();
   const tile = serverId ? await loadTile(serverId, dim, +rx, +rz) : null;

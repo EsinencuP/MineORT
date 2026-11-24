@@ -3,8 +3,9 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { withinRateLimit } from "@/lib/auth/store";
 import { flagGuard } from "@/lib/flags";
 import { RealtimeUnconfigured, signRealtimeToken } from "@/lib/map/realtime";
-import { topicsForViewer } from "@/lib/map/visibility";
+import { sessionTopic } from "@/lib/map/visibility";
 import { loadViewer } from "@/lib/map/viewer";
+import { markLiveSession } from "@/lib/map/viewers";
 
 export const dynamic = "force-dynamic";
 
@@ -30,9 +31,18 @@ export async function GET() {
     return NextResponse.json({ error: "members only" }, { status: 403 });
 
   try {
-    const { token, expiresAt, claims } = await signRealtimeToken(viewer);
+    const { token, expiresAt } = await signRealtimeToken({
+      ...viewer,
+      sessionId: user.sessionId,
+    });
+    await markLiveSession(user.sessionId);
     return NextResponse.json(
-      { token, expiresAt, topics: topicsForViewer(claims) },
+      {
+        token,
+        expiresAt,
+        topics: [sessionTopic(user.sessionId)],
+        staff: viewer.staff,
+      },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (e) {

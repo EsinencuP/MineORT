@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  encodeChunk,
-  COLUMNS,
-  type ChunkColumns,
-} from "./chunk-codec";
+import { encodeChunk, COLUMNS, type ChunkColumns } from "./chunk-codec";
 import { MAX_CHUNKS_PER_BATCH, parseChunkBatch } from "./ingest";
 
 function payload(height = 70): string {

@@ -76,8 +76,9 @@ describe("tile renderer", () => {
     const len = png.readUInt32BE(at - 4);
     const raw = inflateSync(png.subarray(at + 4, at + 4 + len));
     const stride = TILE_SIZE * 4 + 1;
-    return (x: number, y: number) =>
-      [...raw.subarray(y * stride + 1 + x * 4, y * stride + 1 + x * 4 + 4)];
+    return (x: number, y: number) => [
+      ...raw.subarray(y * stride + 1 + x * 4, y * stride + 1 + x * 4 + 4),
+    ];
   };
 
   it("leaves unexplored blocks transparent and paints explored ones", () => {

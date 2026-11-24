@@ -38,7 +38,12 @@ export function encodeChunk(chunk: ChunkColumns): Buffer {
     colors.writeUInt32LE(c.color >>> 0, i * 4);
   });
   return deflateSync(
-    Buffer.concat([Buffer.from([CHUNK_CODEC_VERSION]), heights, depths, colors]),
+    Buffer.concat([
+      Buffer.from([CHUNK_CODEC_VERSION]),
+      heights,
+      depths,
+      colors,
+    ]),
   );
 }
 

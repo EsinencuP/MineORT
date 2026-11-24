@@ -3,7 +3,7 @@ import { writeAudit } from "@/lib/audit";
 import { userIdByNick } from "@/lib/guilds/store";
 import { db } from "@/lib/supabase-admin";
 import { SocialError } from "./errors";
-import { ingestUploads, releaseUnusedMedia, storageUsage } from "./media";
+import { discardUnpublishedMedia, ingestUploads, storageUsage } from "./media";
 import type { Viewer } from "./viewer";
 
 export const GALLERY_PAGE = 24;
@@ -253,7 +253,10 @@ export async function addToGallery(
           created_at: new Date(base + i).toISOString(),
         })),
       );
-    if (error) throw new Error(`gallery attach: ${error.message}`);
+    if (error) {
+      await discardUnpublishedMedia(rows);
+      throw new Error(`gallery attach: ${error.message}`);
+    }
   }
   return rows.length;
 }
@@ -306,8 +309,10 @@ export async function deleteGalleryItem(viewer: Viewer, mediaId: string) {
 }
 
 async function removeEverywhere(mediaId: string) {
-  await db().from("media_attachments").delete().eq("media_id", mediaId);
-  await releaseUnusedMedia([mediaId]);
+  const { error } = await db().rpc("media_soft_delete_everywhere", {
+    p_id: mediaId,
+  });
+  if (error) throw new Error(`media deletion: ${error.message}`);
 }
 
 export async function reportMedia(

@@ -8,9 +8,10 @@ import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { EmptyState, ErrorState } from "@/components/ui/states";
-import { requireFlag } from "@/lib/flags";
+import { isEnabled, requireFlag } from "@/lib/flags";
 import { safely } from "@/lib/safe";
 import {
+  calendarEnabled,
   EVENT_CATEGORIES,
   listEventsBetween,
   listUpcoming,
@@ -27,6 +28,9 @@ const OK_TEXTS = {
   left: "Запись отменена.",
   rescheduled: "Событие перенесено.",
   cancelled: "Событие отменено.",
+  waitlist: "Вы в листе ожидания.",
+  confirm: "Место подтверждено.",
+  leave_waitlist: "Вы вышли из очереди.",
 };
 const COMMUNITY_TZ = "Europe/Chisinau";
 const MONTHS = [
@@ -159,10 +163,11 @@ export default async function CalendarPage({
   await requireFlag("ff_p1b_social");
   const sp = await searchParams;
   const viewer = await getViewer();
+  const advanced = calendarEnabled();
   const month = sp.m !== undefined;
   const { y, m } = parseMonth(sp.m);
   const events =
-    viewer.cls === "guest"
+    !advanced && viewer.cls === "guest"
       ? []
       : await safely(
           "events",
@@ -249,6 +254,14 @@ export default async function CalendarPage({
 
       <div className="mt-5 flex flex-col gap-4">
         <Notice error={sp.error} ok={sp.ok} okTexts={OK_TEXTS} />
+        {advanced && viewer.userId && (
+          <Link
+            href="/dashboard/calendar"
+            className="text-brand-700 text-sm underline"
+          >
+            Подписка «Мои события MineOrt»
+          </Link>
+        )}
 
         {viewer.canPublish && (
           <Card>
@@ -287,21 +300,30 @@ export default async function CalendarPage({
                   />
                 </div>
                 <LocalDateTimeInput label="Начало" />
+                {advanced && (
+                  <LocalDateTimeInput
+                    label="Окончание"
+                    name="ends_at"
+                    withZone={false}
+                  />
+                )}
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="ev-dur" className="text-sm font-medium">
-                      Длительность, минут
-                    </label>
-                    <input
-                      id="ev-dur"
-                      name="duration"
-                      type="number"
-                      min={15}
-                      max={1440}
-                      defaultValue={60}
-                      className="bg-paper text-ink border-line min-h-11 rounded-xl border px-3"
-                    />
-                  </div>
+                  {!advanced && (
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="ev-dur" className="text-sm font-medium">
+                        Длительность, минут
+                      </label>
+                      <input
+                        id="ev-dur"
+                        name="duration"
+                        type="number"
+                        min={15}
+                        max={1440}
+                        defaultValue={60}
+                        className="bg-paper text-ink border-line min-h-11 rounded-xl border px-3"
+                      />
+                    </div>
+                  )}
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="ev-seats" className="text-sm font-medium">
                       Лимит мест (необязательно)
@@ -315,6 +337,43 @@ export default async function CalendarPage({
                       className="bg-paper text-ink border-line min-h-11 rounded-xl border px-3"
                     />
                   </div>
+                  {advanced && (
+                    <>
+                      <label className="flex flex-col gap-1.5 text-sm font-medium">
+                        Кто увидит событие
+                        <select
+                          name="visibility"
+                          defaultValue="signed_in"
+                          className="bg-paper text-ink border-line min-h-11 rounded-xl border px-3"
+                        >
+                          <option value="public">Все</option>
+                          <option value="signed_in">Вошедшие игроки</option>
+                          <option value="guild">Моя гильдия</option>
+                          <option value="private">Только я</option>
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1.5 text-sm font-medium">
+                        Ссылка на метку атласа
+                        <input
+                          name="marker_id"
+                          placeholder="/map?m=…"
+                          maxLength={500}
+                          className="bg-paper text-ink border-line min-h-11 rounded-xl border px-3"
+                        />
+                      </label>
+                      {isEnabled("ff_community_progress") && (
+                        <label className="flex flex-col gap-1.5 text-sm font-medium">
+                          Ссылка на ваш проект для рейда
+                          <input
+                            name="project_id"
+                            placeholder="/social/projects/…"
+                            maxLength={500}
+                            className="bg-paper text-ink border-line min-h-11 rounded-xl border px-3"
+                          />
+                        </label>
+                      )}
+                    </>
+                  )}
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="ev-place" className="text-sm font-medium">
                       Место
@@ -351,7 +410,7 @@ export default async function CalendarPage({
           </Card>
         )}
 
-        {viewer.cls === "guest" ? (
+        {!advanced && viewer.cls === "guest" ? (
           <div className="border-line bg-surface flex flex-col items-start gap-3 rounded-2xl border p-4 text-sm">
             <p>Календарь виден вошедшим игрокам.</p>
             <ButtonLink href="/login" className="min-h-11 px-5 text-sm">
@@ -379,7 +438,12 @@ export default async function CalendarPage({
               <ol className="flex flex-col gap-4">
                 {events.map((e) => (
                   <li key={e.id}>
-                    <EventCard event={e} viewer={viewer} back={back} />
+                    <EventCard
+                      event={e}
+                      viewer={viewer}
+                      back={back}
+                      advanced={advanced}
+                    />
                   </li>
                 ))}
               </ol>

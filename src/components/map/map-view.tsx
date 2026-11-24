@@ -54,8 +54,15 @@ import {
   type SortId,
 } from "./markers";
 import { PlayerFeed, type FeedState } from "./players";
-import { drawMarkers, markerAt, type MapMarker } from "./render/markers";
+import {
+  drawBoundary,
+  drawMarkers,
+  markerAt,
+  markerPoint,
+  type MapMarker,
+} from "./render/markers";
 import { drawPlayers } from "./render/players";
+import { MAX_VERTICES, validPolygon, type Vertex } from "@/lib/map/polygon";
 
 type Dim = "overworld" | "nether";
 type Ref = { rx: number; rz: number; version: number };
@@ -105,7 +112,13 @@ const guiScale = (w: number, h: number) =>
 
 const px = (n: number) => `${n}px`;
 
-export function MapView() {
+export function MapView({
+  backHref = "/",
+  hasCollections = false,
+}: {
+  backHref?: string;
+  hasCollections?: boolean;
+}) {
   const root = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const cam = useRef<Camera>({ x: 256, z: 256, scale: 4 });
@@ -114,6 +127,9 @@ export function MapView() {
   const tiles = useRef(new Map<string, Loaded>());
   const pending = useRef(new Set<string>());
   const index = useRef<Ref[]>([]);
+  const indexKey = useRef("");
+  const indexRequest = useRef<AbortController | null>(null);
+  const anchor = useRef<{ rx: number; rz: number } | null>(null);
   const bg = useRef<HTMLImageElement | null>(null);
   const arrow = useRef<HTMLImageElement | null>(null);
   const queued = useRef(false);
@@ -167,6 +183,16 @@ export function MapView() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panel, setPanel] = useState<"none" | "view" | "edit">("none");
   const [draft, setDraftState] = useState<Draft | null>(null);
+  const [areaEdit, setAreaEdit] = useState(false);
+  const [areaPoints, setAreaPoints] = useState<Vertex[]>([]);
+  const [areaError, setAreaError] = useState("");
+  const [movingVertex, setMovingVertex] = useState<number | null>(null);
+  const areaEditRef = useRef(false);
+  const areaPointsRef = useRef<Vertex[]>([]);
+  const [areaHistory, setAreaHistory] = useState<Vertex[][]>([]);
+  const focusedArea = useRef<string | null>(null);
+  const touchedArea = useRef<string | null>(null);
+  const areaLabels = useRef(new Map<string, HTMLButtonElement>());
   const [listOpen, setListOpen] = useState(false);
   const [sort, setSort] = useState<SortId>("name");
   const [query, setQuery] = useState("");
@@ -373,6 +399,33 @@ export function MapView() {
         canDelete: true,
         createdAt: "",
       });
+    const activeArea =
+      focusedArea.current ?? hoveredRef.current ?? touchedArea.current;
+    for (const m of shown) {
+      const label = areaLabels.current.get(m.id);
+      if (!label) continue;
+      const [left, top] = markerPoint(c, size.current, m);
+      label.style.left = px(left);
+      label.style.top = px(top);
+      label.hidden =
+        left < 0 ||
+        top < 0 ||
+        left > size.current.width ||
+        top > size.current.height;
+    }
+    const boundary = shown.find((m) => m.id === activeArea)?.boundary;
+    if (boundary && !areaEditRef.current)
+      drawBoundary(ctx, c, size.current, boundary, t.accent, true);
+    if (areaEditRef.current)
+      drawBoundary(
+        ctx,
+        c,
+        size.current,
+        areaPointsRef.current,
+        t.accent,
+        false,
+        true,
+      );
     drawMarkers(ctx, c, size.current, shown, {
       g: gp,
       family: getComputedStyle(el).fontFamily,
@@ -470,6 +523,64 @@ export function MapView() {
     }
   }, [requestPaint]);
 
+  const refreshRegions = useCallback(
+    async (first = false, force = false) => {
+      const ranges = visibleRegions(cam.current, size.current, 320);
+      const low = ranges[0];
+      const high = ranges.at(-1)!;
+      const params = new URLSearchParams({
+        dim: dimRef.current,
+        minX: String(low.rx),
+        minZ: String(low.rz),
+        maxX: String(high.rx),
+        maxZ: String(high.rz),
+      });
+      const key = params.toString();
+      if (!force && indexKey.current === key) {
+        loadVisible();
+        return;
+      }
+      indexKey.current = key;
+      if (first) params.set("anchor", "1");
+      indexRequest.current?.abort();
+      const controller = new AbortController();
+      indexRequest.current = controller;
+      try {
+        const res = await fetch(`/api/map/regions?${params}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`index ${res.status}`);
+        const data = (await res.json()) as {
+          regions: Ref[];
+          anchor: typeof anchor.current;
+        };
+        if (controller.signal.aborted) return;
+        if (first) anchor.current = data.anchor;
+        index.current = data.regions;
+        if (
+          first &&
+          !data.regions.length &&
+          data.anchor &&
+          !new URLSearchParams(location.search).has("m")
+        ) {
+          cam.current = {
+            ...cam.current,
+            x: (data.anchor.rx + 0.5) * REGION_BLOCKS,
+            z: (data.anchor.rz + 0.5) * REGION_BLOCKS,
+          };
+        }
+        setStatus(data.regions.length || anchor.current ? "ready" : "empty");
+        loadVisible();
+        requestPaint();
+      } catch {
+        if (controller.signal.aborted) return;
+        indexKey.current = "";
+        setStatus("error");
+      }
+    },
+    [loadVisible, requestPaint],
+  );
+
   const moved = useCallback(() => {
     requestPaint();
     syncScale();
@@ -479,8 +590,8 @@ export function MapView() {
     ];
     setViewMid((v) => (v[0] === mid[0] && v[1] === mid[1] ? v : mid));
     clearTimeout(fetchTimer.current);
-    fetchTimer.current = setTimeout(loadVisible, 120);
-  }, [requestPaint, syncScale, loadVisible]);
+    fetchTimer.current = setTimeout(() => void refreshRegions(), 120);
+  }, [requestPaint, syncScale, refreshRegions]);
 
   const zoomBy = useCallback(
     (factor: number, sx?: number, sz?: number) => {
@@ -501,12 +612,9 @@ export function MapView() {
 
   /** Puts the middle of the explored world on screen at the mod's starting zoom. */
   const center = useCallback(() => {
-    if (index.current.length === 0) return;
-    const xs = index.current.map((r) => r.rx);
-    const zs = index.current.map((r) => r.rz);
     cam.current = {
-      x: ((Math.min(...xs) + Math.max(...xs) + 1) / 2) * REGION_BLOCKS,
-      z: ((Math.min(...zs) + Math.max(...zs) + 1) / 2) * REGION_BLOCKS,
+      x: ((anchor.current?.rx ?? 0) + 0.5) * REGION_BLOCKS,
+      z: ((anchor.current?.rz ?? 0) + 0.5) * REGION_BLOCKS,
       scale: 2 * gRef.current,
     };
     moved();
@@ -532,23 +640,12 @@ export function MapView() {
   const refresh = useCallback(
     async (first: boolean) => {
       void loadMarkers();
-      try {
-        const res = await fetch(`/api/map/regions?dim=${dimRef.current}`);
-        if (!res.ok) throw new Error(`index ${res.status}`);
-        index.current = ((await res.json()) as { regions: Ref[] }).regions;
-        if (index.current.length === 0) {
-          setStatus("empty");
-          requestPaint();
-          return;
-        }
-        setStatus("ready");
-        if (first) center();
-        else loadVisible();
-      } catch {
-        setStatus("error");
+      await refreshRegions(first, true);
+      if (first) {
+        await refreshRegions();
       }
     },
-    [center, loadVisible, loadMarkers, requestPaint],
+    [loadMarkers, refreshRegions],
   );
 
   const setTool = (t: Tool) => {
@@ -827,8 +924,48 @@ export function MapView() {
       icon: m.icon,
       color: m.color,
       visibility: m.visibility,
+      boundary: m.boundary,
     });
     setPanel("edit");
+  };
+
+  const changeArea = (vertices: Vertex[], remember = true) => {
+    if (remember) {
+      const previous = areaPointsRef.current;
+      setAreaHistory((history) => [...history, previous]);
+    }
+    areaPointsRef.current = vertices;
+    setAreaPoints(vertices);
+    setAreaError("");
+    requestPaint();
+  };
+
+  const startArea = () => {
+    setAreaHistory([]);
+    changeArea(draftRef.current?.boundary ?? [], false);
+    areaEditRef.current = true;
+    setAreaEdit(true);
+    setMovingVertex(null);
+    requestPaint();
+  };
+
+  const closeArea = () => {
+    areaEditRef.current = false;
+    setAreaEdit(false);
+    setMovingVertex(null);
+    requestPaint();
+  };
+
+  const finishArea = () => {
+    if (!validPolygon(areaPointsRef.current)) {
+      setAreaError(
+        "Нужно минимум три разные вершины. Стороны контура не должны пересекаться.",
+      );
+      return;
+    }
+    if (draftRef.current)
+      setDraft({ ...draftRef.current, boundary: areaPointsRef.current });
+    closeArea();
   };
 
   async function call(
@@ -1002,6 +1139,24 @@ export function MapView() {
 
   /** MapScreen.onMapClick: a marker opens its card; a right click on bare map puts a marker. */
   function mapClick(mx: number, my: number, button: number) {
+    if (areaEdit) {
+      if (button !== 0) return;
+      const [worldX, worldZ] = screenToWorld(cam.current, size.current, mx, my);
+      const point: Vertex = [Math.round(worldX), Math.round(worldZ)];
+      if (movingVertex !== null) {
+        changeArea(
+          areaPointsRef.current.map((v, i) => (i === movingVertex ? point : v)),
+        );
+        setMovingVertex(null);
+      } else if (areaPointsRef.current.length < MAX_VERTICES) {
+        changeArea([...areaPointsRef.current, point]);
+      } else {
+        setAreaError(`Максимум вершин: ${MAX_VERTICES}.`);
+      }
+      return;
+    }
+    touchedArea.current = null;
+    requestPaint();
     const hit = markerAt(
       cam.current,
       size.current,
@@ -1035,7 +1190,7 @@ export function MapView() {
     };
     clearTimeout(longPress.current);
     // a long press on a touch screen does what a right click does
-    if (e.pointerType === "touch" && toolRef.current === "none") {
+    if (e.pointerType === "touch" && toolRef.current === "none" && !areaEdit) {
       longPress.current = setTimeout(() => {
         const p = press.current;
         if (!p || p.dragging || pointers.current.size !== 1) return;
@@ -1393,8 +1548,8 @@ export function MapView() {
             onClick={() => run(b.action)}
           />
         ))}
-        <Link
-          href="/"
+        <a
+          href={backHref}
           className="atlas-btn"
           aria-label="Закрыть карту"
           title="Закрыть карту"
@@ -1402,7 +1557,7 @@ export function MapView() {
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={toolIcon(theme, "close")} alt="" draggable={false} />
-        </Link>
+        </a>
       </div>
 
       {/* MapScreen.drawTitle, or the ruler bar, or the drawing bar */}
@@ -1937,6 +2092,11 @@ export function MapView() {
                   </a>
                   ).
                 </p>
+                {hasCollections && (
+                  <Link href="/map/collections" className="underline">
+                    Подборки атласа
+                  </Link>
+                )}
               </div>
             </div>
             <div
@@ -1962,6 +2122,117 @@ export function MapView() {
         </>
       )}
 
+      {markers
+        .filter(
+          (m) =>
+            m.boundary &&
+            m.dim === dim &&
+            !hidden.has(m.id) &&
+            prefs.markers &&
+            !areaEdit,
+        )
+        .map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            className="atlas-area-label absolute"
+            ref={(node) => {
+              if (node) {
+                areaLabels.current.set(m.id, node);
+                requestPaint();
+              } else areaLabels.current.delete(m.id);
+            }}
+            onPointerEnter={() => {
+              hoveredRef.current = m.id;
+              requestPaint();
+            }}
+            onPointerLeave={() => {
+              hoveredRef.current = null;
+              requestPaint();
+            }}
+            onFocus={() => {
+              focusedArea.current = m.id;
+              requestPaint();
+            }}
+            onBlur={() => {
+              focusedArea.current = null;
+              requestPaint();
+            }}
+            onClick={() => {
+              touchedArea.current = m.id;
+              openView(m, false);
+              requestPaint();
+            }}
+          >
+            {m.name}
+          </button>
+        ))}
+      {areaEdit && (
+        <Panel
+          className="atlas-area-editor"
+          role="region"
+          aria-label="Контур области"
+        >
+          <p>
+            {movingVertex !== null
+              ? "Нажмите на новое место вершины."
+              : "Ставьте вершины на карте по порядку."}
+          </p>
+          {areaError && <p role="alert">{areaError}</p>}
+          {areaPoints.length > 0 && (
+            <label>
+              Переместить вершину{" "}
+              <select
+                className="atlas-input"
+                value={movingVertex ?? ""}
+                onChange={(e) =>
+                  setMovingVertex(
+                    e.target.value ? Number(e.target.value) - 1 : null,
+                  )
+                }
+              >
+                <option value="">Выбрать</option>
+                {areaPoints.map((_, i) => (
+                  <option key={i} value={i + 1}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="atlas-inset px-2 py-1"
+              onClick={finishArea}
+            >
+              Замкнуть контур
+            </button>
+            <button
+              type="button"
+              className="atlas-inset px-2 py-1"
+              disabled={!areaHistory.length}
+              onClick={() => {
+                const previous = areaHistory.at(-1);
+                if (previous) {
+                  setAreaHistory((history) => history.slice(0, -1));
+                  changeArea(previous, false);
+                }
+                setMovingVertex(null);
+              }}
+            >
+              Отменить шаг
+            </button>
+            <button
+              type="button"
+              className="atlas-inset px-2 py-1"
+              onClick={closeArea}
+            >
+              Назад
+            </button>
+          </div>
+        </Panel>
+      )}
       {/* MapScreen.drawList */}
       {listOpen && (
         <MarkerList
@@ -2019,7 +2290,7 @@ export function MapView() {
       )}
 
       {/* MapScreen.drawEditPanel */}
-      {panel === "edit" && draft && (
+      {panel === "edit" && draft && !areaEdit && (
         <MarkerEditor
           theme={theme}
           g={g}
@@ -2030,6 +2301,8 @@ export function MapView() {
           busy={busy}
           error={markerError}
           onChange={setDraft}
+          onBoundary={startArea}
+          onClearBoundary={() => setDraft({ ...draft, boundary: null })}
           onPickIcon={() => setOverlay("icons")}
           onPickColor={() => {
             setColorFor(draft.icon);

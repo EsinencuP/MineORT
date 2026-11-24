@@ -57,8 +57,9 @@ export class PlayerFeed {
         token: string;
         expiresAt: number;
         topics: string[];
+        staff: boolean;
       };
-      this.staff = first.topics.includes("map:pos:admin");
+      this.staff = first.staff;
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
       if (!url || !key) return this.onState("offline");
@@ -75,7 +76,7 @@ export class PlayerFeed {
         const channel = client
           .channel(topic, { config: { private: true } })
           .on("broadcast", { event: "pos" }, ({ payload }) =>
-            this.receive(payload as { p: Wire[] }),
+            this.receive(payload as { p: Wire[]; staff: boolean }),
           )
           .subscribe((status) => {
             if (this.stopped) return;
@@ -95,11 +96,8 @@ export class PlayerFeed {
       }
       this.cleanup.push(() => void client.realtime.disconnect());
 
-      this.every(
-        WATCH_MS,
-        () => void fetch("/api/map/watch", { method: "POST" }),
-      );
-      void fetch("/api/map/watch", { method: "POST" });
+      this.every(WATCH_MS, () => void this.checkWatch());
+      void this.checkWatch();
       this.refreshToken(client, first.expiresAt);
       this.every(5000, () => this.expire());
     } catch {
@@ -138,13 +136,33 @@ export class PlayerFeed {
     return moving;
   }
 
-  private receive(payload: { p: Wire[] }) {
+  private async checkWatch() {
+    const response = await fetch("/api/map/watch", { method: "POST" }).catch(
+      () => null,
+    );
+    if (
+      this.stopped ||
+      !response ||
+      (response.status !== 401 && response.status !== 403)
+    )
+      return;
+    this.dots.clear();
+    this.staff = false;
+    this.onState(response.status === 401 ? "guest" : "nonmember");
+    this.onChange();
+    this.stop();
+  }
+
+  private receive(payload: { p: Wire[]; staff: boolean }) {
     const now = Date.now();
+    this.staff = payload.staff;
+    const visible = new Set((payload.p ?? []).map((wire) => wire.n));
+    for (const name of this.dots.keys())
+      if (!visible.has(name)) this.dots.delete(name);
     for (const w of payload.p ?? []) {
-      // the same player can arrive on several channels; the freshest report wins
       const old = this.dots.get(w.n);
       if (old && old.seen > now - 200 && old.tx === w.x && old.tz === w.z) {
-        if (w.y !== undefined) old.y = w.y;
+        old.y = w.y;
         continue;
       }
       this.dots.set(w.n, {
@@ -154,7 +172,7 @@ export class PlayerFeed {
         z: old && old.dim === w.d ? old.z : w.z,
         tx: w.x,
         tz: w.z,
-        y: w.y ?? old?.y,
+        y: w.y,
         facing: w.r,
         seen: now,
       });

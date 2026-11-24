@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/supabase-admin";
+import type { RegionBounds } from "./region-bounds";
 import { rebuildRegion, type Dim } from "./regions";
 
 /** The ingest pipeline gets this long to rebuild a changed region before a viewer's request does. */
@@ -67,7 +68,8 @@ export async function loadTile(
   // A built region that changed a moment ago is served as it is. Rebuilding is for a region that
   // has no tile yet, or that the ingest pipeline has left dirty for too long.
   const overdue =
-    row.out_dirty && Date.now() - Date.parse(row.out_dirty_at) > REBUILD_AFTER_MS;
+    row.out_dirty &&
+    Date.now() - Date.parse(row.out_dirty_at) > REBUILD_AFTER_MS;
   if (!row.out_has_tile || overdue) {
     await rebuildOnce(serverId, dim, rx, rz);
     row = await readRow(serverId, dim, rx, rz);
@@ -79,19 +81,55 @@ export async function loadTile(
   };
 }
 
-/** Every explored region with the version of its tile, so the viewer knows where to look. */
+/** Explored regions intersecting the viewport. Each page fits the Data API row limit. */
 export async function listRegions(
   serverId: string,
   dim: Dim,
+  bounds: RegionBounds,
 ): Promise<{ rx: number; rz: number; version: number }[]> {
+  const result: { rx: number; rz: number; version: number }[] = [];
+  const pageSize = 500;
+  let last: { rx: number; rz: number } | undefined;
+  for (;;) {
+    let query = db()
+      .from("map_regions")
+      .select("rx, rz, built_version")
+      .eq("server_id", serverId)
+      .eq("dim", dim)
+      .gte("rx", bounds.minX)
+      .lte("rx", bounds.maxX)
+      .gte("rz", bounds.minZ)
+      .lte("rz", bounds.maxZ)
+      .order("rx")
+      .order("rz")
+      .limit(pageSize);
+    if (last)
+      query = query.or(
+        `rx.gt.${last.rx},and(rx.eq.${last.rx},rz.gt.${last.rz})`,
+      );
+    const { data, error } = await query;
+    if (error) throw new Error(`map_regions list: ${error.message}`);
+    result.push(
+      ...data.map((row) => ({
+        rx: row.rx,
+        rz: row.rz,
+        version: Number(row.built_version),
+      })),
+    );
+    if (data.length < pageSize) return result;
+    last = data.at(-1);
+  }
+}
+
+export async function mapRegionAnchor(serverId: string, dim: Dim) {
   const { data, error } = await db()
     .from("map_regions")
-    .select("rx, rz, built_version")
+    .select("rx, rz")
     .eq("server_id", serverId)
     .eq("dim", dim)
-    .limit(500);
-  if (error) throw new Error(`map_regions list: ${error.message}`);
-  return (data as { rx: number; rz: number; built_version: number }[]).map(
-    (r) => ({ rx: r.rx, rz: r.rz, version: Number(r.built_version) }),
-  );
+    .order("dirty_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`map region anchor: ${error.message}`);
+  return data as { rx: number; rz: number } | null;
 }

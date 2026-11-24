@@ -3,8 +3,11 @@
 // label below once the zoom is 1.5 or more. A recoloured icon is its grey copy multiplied by the ink.
 
 import { worldToScreen, type Camera, type Viewport } from "../camera";
+import type { Vertex } from "@/lib/map/polygon";
 
 export type MapMarker = {
+  boundary?: Vertex[] | null;
+  bookmarked?: boolean;
   id: string;
   kind: "point" | "label";
   dim: "overworld" | "nether";
@@ -23,6 +26,38 @@ export type MapMarker = {
   canDelete: boolean;
   createdAt: string;
 };
+
+export function drawBoundary(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera,
+  view: Viewport,
+  vertices: Vertex[],
+  color: string,
+  closed: boolean,
+  handles = false,
+) {
+  if (!vertices.length) return;
+  const points = vertices.map(([x, z]) => worldToScreen(cam, view, x, z));
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(...points[0]);
+  for (const point of points.slice(1)) ctx.lineTo(...point);
+  if (closed) {
+    ctx.closePath();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  if (handles) {
+    ctx.fillStyle = color;
+    for (const [x, y] of points) ctx.fillRect(x - 4, y - 4, 8, 8);
+  }
+  ctx.restore();
+}
 
 const images = new Map<string, HTMLImageElement>();
 const tinted = new Map<string, HTMLCanvasElement>();
@@ -131,6 +166,7 @@ export function drawMarkers(
     const hov = m.id === opts.hovered;
 
     if (m.kind === "label") {
+      if (m.boundary) continue; // Interactive area labels are HTML buttons above the canvas.
       // a place name written on the map, larger, with a cream halo instead of a box
       ctx.font = `${13 * g}px ${opts.family}`;
       const tw = ctx.measureText(m.name).width;

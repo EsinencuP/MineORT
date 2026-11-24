@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Composer } from "@/components/social/composer";
 import { PostCard } from "@/components/social/post-card";
+import { FeedMore } from "@/components/social/feed-more";
+import { discussionsEnabled } from "@/lib/community/discussions";
 import { ButtonLink } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { EmptyState, ErrorState } from "@/components/ui/states";
@@ -33,25 +35,65 @@ export default async function SocialPage({
 }: PageProps<"/social">) {
   await requireFlag("ff_p1a");
   const sp = await searchParams;
-  const filter: FeedFilter = sp.f === "news" || sp.f === "posts" ? sp.f : "all";
-  const page = Math.max(0, Number.parseInt(String(sp.p ?? "0"), 10) || 0);
+  const advanced = discussionsEnabled();
   const viewer = await getViewer();
+  const filter: FeedFilter =
+    sp.f === "news" || sp.f === "posts"
+      ? sp.f
+      : sp.f === "following" && advanced && viewer.userId
+        ? "following"
+        : "all";
+  const page = Math.min(
+    1000,
+    Math.max(0, Number.parseInt(String(sp.p ?? "0"), 10) || 0),
+  );
+  const through = advanced
+    ? Math.min(
+        10,
+        Math.max(1, Number.parseInt(String(sp.through ?? "1"), 10) || 1),
+      )
+    : 1;
   const feed = await safely(
     "social feed",
-    () => listFeed(viewer, filter, page),
+    async () => {
+      const pages = await Promise.all(
+        Array.from({ length: through }, (_, i) =>
+          listFeed(viewer, filter, page + i),
+        ),
+      );
+      return {
+        posts: [
+          ...new Map(
+            pages
+              .flatMap((result) => result.posts)
+              .map((post) => [post.id, post]),
+          ).values(),
+        ],
+        hasMore: pages.at(-1)?.hasMore ?? false,
+      };
+    },
     null,
   );
   const gallery = viewer.canPublish
     ? await safely("my gallery", () => listMyGallery(viewer.userId!), [])
     : [];
-  const href = (f: FeedFilter, p = 0) => {
+  const href = (f: FeedFilter, p = 0, count = 1) => {
     const q = new URLSearchParams();
     if (f !== "all") q.set("f", f);
     if (p > 0) q.set("p", String(p));
+    if (count > 1) q.set("through", String(count));
     const s = q.toString();
     return `/social${s ? `?${s}` : ""}`;
   };
-  const back = href(filter, page);
+  const back = href(filter, page, through);
+  const filters = advanced
+    ? [
+        ...(viewer.userId
+          ? [{ id: "following" as const, label: "Подписки" }]
+          : []),
+        ...FILTERS.filter((entry) => entry.id !== "posts"),
+      ]
+    : FILTERS;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
@@ -67,7 +109,7 @@ export default async function SocialPage({
         aria-label="Фильтр ленты"
         className="mt-5 flex flex-wrap items-center gap-2"
       >
-        {FILTERS.map((f) => (
+        {filters.map((f) => (
           <Link
             key={f.id}
             href={href(f.id)}
@@ -87,13 +129,27 @@ export default async function SocialPage({
         >
           Галерея
         </Link>
+        {advanced && viewer.userId && (
+          <Link
+            href="/dashboard/bookmarks"
+            className="text-brand-700 text-sm underline"
+          >
+            Закладки
+          </Link>
+        )}
       </nav>
 
       <div className="mt-5 flex flex-col gap-4">
         <Notice error={sp.error} ok={sp.ok} okTexts={OK_TEXTS} />
 
         {viewer.canPublish ? (
-          <Composer viewer={viewer} gallery={gallery} back={back} />
+          <Composer
+            viewer={viewer}
+            gallery={gallery}
+            back={back}
+            advanced={advanced}
+            published={sp.ok === "posted"}
+          />
         ) : viewer.cls === "guest" ? (
           <div className="border-line bg-surface flex flex-col items-start gap-3 rounded-2xl border p-4 text-sm">
             <p>
@@ -138,7 +194,12 @@ export default async function SocialPage({
           <ol className="flex flex-col gap-4">
             {feed.posts.map((p) => (
               <li key={p.id}>
-                <PostCard post={p} viewer={viewer} back={back} />
+                <PostCard
+                  post={p}
+                  viewer={viewer}
+                  back={back}
+                  advanced={advanced}
+                />
               </li>
             ))}
           </ol>
@@ -156,9 +217,12 @@ export default async function SocialPage({
             ) : (
               <span />
             )}
-            {feed.hasMore && (
+            {feed.hasMore && advanced && through < 10 && (
+              <FeedMore href={href(filter, page, through + 1)} />
+            )}
+            {feed.hasMore && (!advanced || through === 10) && (
               <Link
-                href={href(filter, page + 1)}
+                href={href(filter, page + through)}
                 className="text-brand-700 min-h-11 py-2 font-semibold underline underline-offset-4"
               >
                 Старше →

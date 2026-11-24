@@ -64,6 +64,11 @@ export default async function GuildPage({
   const canJoin =
     !archived && viewer.cls === "member" && !mine?.guild && !myRequest;
   const back = `/guilds/${slug}`;
+  const advanced =
+    discussionsEnabled() && !archived && viewer.userId && internal;
+  const following = advanced
+    ? await isFollowing(viewer.userId!, "guild", internal.id)
+    : false;
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-8 sm:py-10">
@@ -93,6 +98,23 @@ export default async function GuildPage({
       </header>
 
       <div className="mt-5 flex flex-col gap-4">
+        {advanced && (
+          <div className="flex flex-wrap gap-2">
+            {here && (
+              <ThreadLink type="guild" id={internal.id}>
+                Доска объявлений
+              </ThreadLink>
+            )}
+            {viewer.cls !== "restricted" && (
+              <FollowControl
+                type="guild"
+                id={internal.id}
+                following={following}
+                back={back}
+              />
+            )}
+          </div>
+        )}
         <Notice error={sp.error} ok={sp.ok} okTexts={OK_TEXTS} />
 
         {archived && (
@@ -211,3 +233,5 @@ export default async function GuildPage({
     </div>
   );
 }
+import { FollowControl, ThreadLink } from "@/components/social/thread-controls";
+import { discussionsEnabled, isFollowing } from "@/lib/community/discussions";

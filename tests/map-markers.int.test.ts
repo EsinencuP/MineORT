@@ -172,7 +172,10 @@ describe.skipIf(!enabled)("map markers (staging)", () => {
     await expect(createMarker(guest, input())).rejects.toThrow(
       "marker_forbidden",
     );
-    const label = await createMarker(mod, input({ kind: "label", name: "Долина" }));
+    const label = await createMarker(
+      mod,
+      input({ kind: "label", name: "Долина" }),
+    );
     expect(label.status).toBe("approved");
     expect(label.author).toBe("Администрация");
   });

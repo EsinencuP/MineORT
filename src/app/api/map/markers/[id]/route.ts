@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { parseMarkerInput } from "@/lib/map/marker-rules";
+import { validPolygon } from "@/lib/map/polygon";
 import {
   deleteMarker,
   getMarker,
@@ -34,7 +35,10 @@ export async function PATCH(
   const off = guard(req, true);
   if (off) return off;
   const { id } = await ctx.params;
-  const input = parseMarkerInput(await jsonBody(req));
+  const body = (await jsonBody(req)) as { boundary?: unknown } | null;
+  if (body?.boundary != null && !validPolygon(body.boundary))
+    return fail("marker_boundary_invalid");
+  const input = parseMarkerInput(body);
   if (!input) return fail("marker_invalid");
   return answer(async () => ({
     marker: await updateMarker(await getMarkerViewer(), id, input),
