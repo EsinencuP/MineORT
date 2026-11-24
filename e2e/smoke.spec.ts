@@ -70,7 +70,11 @@ test("menu hides unavailable items and has no dead links", async ({
   const nav = page
     .getByRole("navigation", { name: "Главное меню" })
     .filter({ visible: true });
-  await expect(nav.getByRole("link", { name: "Карта" })).toHaveCount(0);
+  const atlasOn =
+    process.env.FF_P1C === "true" && process.env.FF_P1C_ATLAS === "true";
+  await expect(
+    nav.getByRole("link", { name: "Карта", exact: true }),
+  ).toHaveCount(atlasOn ? 1 : 0);
   const hrefs = await nav
     .getByRole("link")
     .evaluateAll((a) => a.map((x) => x.getAttribute("href")!));

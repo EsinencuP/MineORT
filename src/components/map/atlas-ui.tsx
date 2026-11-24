@@ -29,6 +29,7 @@ export function IconButton({
   icon,
   label,
   pressed,
+  disabled,
   onClick,
   size = TB,
   iconSize,
@@ -41,6 +42,7 @@ export function IconButton({
   src?: string;
   label: string;
   pressed?: boolean;
+  disabled?: boolean;
   onClick: () => void;
   size?: number;
   iconSize?: number;
@@ -56,10 +58,11 @@ export function IconButton({
   return (
     <button
       type="button"
-      className="atlas-btn"
+      className="atlas-btn disabled:cursor-not-allowed disabled:opacity-60"
       aria-label={label}
       title={label}
       aria-pressed={pressed}
+      disabled={disabled}
       onClick={onClick}
       style={style}
     >

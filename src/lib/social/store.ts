@@ -226,8 +226,8 @@ async function hydrate(
   });
 }
 
-const POST_CARD_COLUMNS =
-  "id, author_id, kind, body, visibility, pinned, created_at, edited_at, linked_type, linked_id, cover_media_id";
+// hydrate projects both the base and expanded schemas onto the public card shape.
+const POST_CARD_COLUMNS = "*";
 
 export async function getFeedPost(viewer: Viewer, id: string) {
   if (!EVENT_ID.test(id)) return null;
@@ -314,6 +314,7 @@ export async function listFeed(
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
       .range(from, from + PAGE_SIZE);
+    if (error?.code === "PGRST202") return { posts: [], hasMore: false };
     if (error) throw new Error(`subscriptions feed: ${error.message}`);
     return {
       posts: await hydrate(data.slice(0, PAGE_SIZE), viewer),
@@ -399,12 +400,14 @@ export async function createPost(viewer: Viewer, input: NewPost) {
   // upload checks come first: nothing is published when a file is refused (SC-SOC-05)
   let uploaded: MediaRow[] = [];
   try {
-    uploaded = await ingestUploads(
-      viewer.userId,
-      input.incomingPaths,
-      visibility,
-    );
+    if (input.incomingPaths.length)
+      uploaded = await ingestUploads(
+        viewer.userId,
+        input.incomingPaths,
+        visibility,
+      );
     const mediaIds = [...uploaded.map((m) => m.id), ...galleryIds];
+    const coverId = mediaIds[(input.coverPosition ?? 1) - 1];
     const { data: post, error } = await db()
       .from("posts")
       .insert({
@@ -413,12 +416,18 @@ export async function createPost(viewer: Viewer, input: NewPost) {
         body,
         visibility,
         pinned,
-        linked_type: linked?.type,
-        linked_id: linked?.id,
-        cover_media_id: mediaIds[(input.coverPosition ?? 1) - 1] ?? null,
+        ...(linked ? { linked_type: linked.type, linked_id: linked.id } : {}),
+        ...(coverId && coverId !== mediaIds[0]
+          ? { cover_media_id: coverId }
+          : {}),
       })
       .select("id")
       .single();
+    if (
+      error?.code === "PGRST204" &&
+      (linked || (coverId && coverId !== mediaIds[0]))
+    )
+      throw new SocialError("post_options_unavailable");
     if (error || !post) throw new Error(`post insert: ${error?.message}`);
     if (mediaIds.length > 0) {
       const { error: attErr } = await db()

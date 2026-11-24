@@ -122,14 +122,26 @@ export async function listRegions(
 }
 
 export async function mapRegionAnchor(serverId: string, dim: Dim) {
-  const { data, error } = await db()
-    .from("map_regions")
-    .select("rx, rz")
-    .eq("server_id", serverId)
-    .eq("dim", dim)
-    .order("dirty_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(`map region anchor: ${error.message}`);
-  return data as { rx: number; rz: number } | null;
+  // Read just the four extremes, including regions outside the current viewport and API page.
+  const extreme = async (axis: "rx" | "rz", ascending: boolean) => {
+    const { data, error } = await db()
+      .from("map_regions")
+      .select(axis)
+      .eq("server_id", serverId)
+      .eq("dim", dim)
+      .order(axis, { ascending })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`map region extent: ${error.message}`);
+    return data ? (data as Record<typeof axis, number>)[axis] : null;
+  };
+  const [minX, maxX, minZ, maxZ] = await Promise.all([
+    extreme("rx", true),
+    extreme("rx", false),
+    extreme("rz", true),
+    extreme("rz", false),
+  ]);
+  if (minX === null || maxX === null || minZ === null || maxZ === null)
+    return null;
+  return { rx: (minX + maxX) / 2, rz: (minZ + maxZ) / 2 };
 }

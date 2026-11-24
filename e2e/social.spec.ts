@@ -129,8 +129,25 @@ async function publish(
     await expect(page.getByText("Готово", { exact: true })).toBeVisible();
   }
   if (opts.private) await page.getByLabel("Только я").check();
-  await page.getByRole("button", { name: "Опубликовать" }).click();
+  const [submitted] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/social",
+    ),
+    page.getByRole("button", { name: "Опубликовать" }).click(),
+  ]);
+  await submitted.finished();
 }
+
+test("a member publishes and reloads a text-only post", async ({ browser }) => {
+  const bob = await asUser(browser, "bob");
+  const text = `Текстовая запись ${TAG}`;
+  await publish(bob, text);
+  await expect(bob.getByText("Опубликовано.")).toBeVisible();
+  await bob.goto("/social");
+  await expect(bob.locator("[data-post-id]", { hasText: text })).toBeVisible();
+});
 
 test("a member publishes a post with a screenshot; the file is re-encoded to WebP", async ({
   browser,
@@ -141,7 +158,7 @@ test("a member publishes a post with a screenshot; the file is re-encoded to Web
   const card = bob.locator("[data-post-id]", { hasText: `Моя стройка ${TAG}` });
   await expect(card).toBeVisible();
   const src = await card
-    .locator("img[alt='Изображение к публикации']")
+    .getByRole("img", { name: "Открыть изображение к публикации" })
     .getAttribute("src");
   const res = await bob.request.get(src!);
   expect(res.status()).toBe(200);
@@ -192,7 +209,7 @@ test("visibility: guest sees only news; a player without admission reads but can
   await expect(bob.getByText("Опубликовано.")).toBeVisible();
   const privSrc = await bob
     .locator("[data-post-id]", { hasText: `Секрет ${TAG}` })
-    .locator("img[alt='Изображение к публикации']")
+    .getByRole("img", { name: "Открыть изображение к публикации" })
     .getAttribute("src");
 
   const alice = await asUser(browser, "alice");

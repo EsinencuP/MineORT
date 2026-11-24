@@ -70,6 +70,38 @@ test.afterAll(async () => {
   await db.from("rate_limit_counters").delete().like("key", "map:marker:%");
 });
 
+test("a member places and reloads a private marker on an empty map", async ({
+  browser,
+}) => {
+  const page = await asMember(browser, "bob");
+  await page.route("**/api/map/regions?*", (route) =>
+    route.fulfill({ json: { regions: [], anchor: null } }),
+  );
+  await page.goto("/map");
+  await expect(page.getByText(/Карта откроется/)).toBeVisible();
+
+  const place = page.getByRole("button", { name: "Поставить метку" });
+  await place.click();
+  await expect(place).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("img", { name: /Карта мира/ }).click();
+
+  const name = `Личная ${randomUUID().slice(0, 8)}`;
+  const editor = page.getByRole("dialog", { name: "Новая метка" });
+  await editor.getByLabel("Название").fill(name);
+  await editor.getByRole("button", { name: "Сохранить" }).click();
+  await expect(
+    page.getByRole("dialog", { name: `Метка: ${name}` }),
+  ).toContainText("Личная");
+
+  await page.reload();
+  await page.getByRole("button", { name: /Список меток/ }).click();
+  await expect(
+    page.getByRole("region", { name: "Список меток" }).getByRole("button", {
+      name: new RegExp(name),
+    }),
+  ).toBeVisible();
+});
+
 test("a member puts a marker, styles it and finds it in the list", async ({
   browser,
 }) => {

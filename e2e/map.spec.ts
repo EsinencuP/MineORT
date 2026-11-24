@@ -63,6 +63,71 @@ test.describe("map with the atlas flag on", () => {
     ).toHaveAttribute("aria-pressed", "true");
   });
 
+  test("recenters on the dimension midpoint after panning", async ({
+    page,
+  }) => {
+    test.skip(process.env.E2E_MAP_FIXTURE !== "1", "uses a fixed world extent");
+    const viewports: URLSearchParams[] = [];
+    await page.route("**/api/map/regions?*", (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.has("minX")) viewports.push(params);
+      return route.fulfill({
+        json: {
+          regions: [],
+          anchor: params.has("anchor") ? { rx: 12, rz: -5 } : null,
+        },
+      });
+    });
+    const lastRegion = () => {
+      const last = viewports.at(-1);
+      return last ? [last.get("minX"), last.get("minZ")] : null;
+    };
+    await page.goto("/map");
+    await expect.poll(lastRegion).toEqual(["12", "-5"]);
+
+    const canvas = page.getByRole("img", { name: /Карта мира/ });
+    await canvas.evaluate((el) => {
+      for (let i = 0; i < 80; i++)
+        el.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+        );
+    });
+    await expect.poll(lastRegion).not.toEqual(["12", "-5"]);
+
+    await page.getByRole("button", { name: "К середине карты" }).click();
+    await expect.poll(lastRegion).toEqual(["12", "-5"]);
+  });
+
+  test("the place marker control opens the editor at the chosen point", async ({
+    page,
+  }, info) => {
+    test.skip(process.env.E2E_MAP_FIXTURE !== "1", "uses a member fixture");
+    await page.route("**/api/map/markers?*", (route) =>
+      route.fulfill({
+        json: {
+          markers: [],
+          me: {
+            signedIn: true,
+            canCreate: true,
+            canLabel: false,
+            canModerate: false,
+            inGuild: false,
+          },
+        },
+      }),
+    );
+    await page.goto("/map");
+    const place = page.getByRole("button", { name: "Поставить метку" });
+    await place.click();
+    const canvas = page.getByRole("img", { name: /Карта мира/ });
+    if (info.project.use.hasTouch) await canvas.tap();
+    else await canvas.click();
+    await expect(
+      page.getByRole("dialog", { name: "Новая метка" }),
+    ).toBeVisible();
+    await expect(place).toHaveAttribute("aria-pressed", "false");
+  });
+
   test("the page shows no coordinates", async ({ page }) => {
     await page.goto("/map");
     await page.getByRole("img", { name: /Карта мира/ }).hover();

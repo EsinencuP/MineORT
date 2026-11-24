@@ -84,7 +84,7 @@ type Me = {
   canModerate: boolean;
   inGuild: boolean;
 };
-type Tool = "none" | "ruler" | "draw";
+type Tool = "none" | "ruler" | "draw" | "marker";
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 16;
@@ -129,7 +129,7 @@ export function MapView({
   const index = useRef<Ref[]>([]);
   const indexKey = useRef("");
   const indexRequest = useRef<AbortController | null>(null);
-  const anchor = useRef<{ rx: number; rz: number } | null>(null);
+  const anchor = useRef<{ dim: Dim; rx: number; rz: number } | null>(null);
   const bg = useRef<HTMLImageElement | null>(null);
   const arrow = useRef<HTMLImageElement | null>(null);
   const queued = useRef(false);
@@ -146,6 +146,7 @@ export function MapView({
   const [width, setWidth] = useState(800);
   const [dim, setDim] = useState<Dim>("overworld");
   const [status, setStatus] = useState<Status>("loading");
+  const [markersUnavailable, setMarkersUnavailable] = useState(false);
   const [overlay, setOverlay] = useState<Overlay>("none");
   const [theme, setTheme] = useState<AtlasTheme>(DEFAULT_THEME);
   const [tool, setToolState] = useState<Tool>("none");
@@ -179,6 +180,7 @@ export function MapView({
 
   // markers
   const [markers, setMarkersState] = useState<MapMarker[]>([]);
+  const markersRevision = useRef(0);
   const [me, setMe] = useState<Me>(NO_ONE);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panel, setPanel] = useState<"none" | "view" | "edit">("none");
@@ -524,7 +526,7 @@ export function MapView({
   }, [requestPaint]);
 
   const refreshRegions = useCallback(
-    async (first = false, force = false) => {
+    async (force = false) => {
       const ranges = visibleRegions(cam.current, size.current, 320);
       const low = ranges[0];
       const high = ranges.at(-1)!;
@@ -541,7 +543,6 @@ export function MapView({
         return;
       }
       indexKey.current = key;
-      if (first) params.set("anchor", "1");
       indexRequest.current?.abort();
       const controller = new AbortController();
       indexRequest.current = controller;
@@ -550,25 +551,9 @@ export function MapView({
           signal: controller.signal,
         });
         if (!res.ok) throw new Error(`index ${res.status}`);
-        const data = (await res.json()) as {
-          regions: Ref[];
-          anchor: typeof anchor.current;
-        };
+        const data = (await res.json()) as { regions: Ref[] };
         if (controller.signal.aborted) return;
-        if (first) anchor.current = data.anchor;
         index.current = data.regions;
-        if (
-          first &&
-          !data.regions.length &&
-          data.anchor &&
-          !new URLSearchParams(location.search).has("m")
-        ) {
-          cam.current = {
-            ...cam.current,
-            x: (data.anchor.rx + 0.5) * REGION_BLOCKS,
-            z: (data.anchor.rz + 0.5) * REGION_BLOCKS,
-          };
-        }
         setStatus(data.regions.length || anchor.current ? "ready" : "empty");
         loadVisible();
         requestPaint();
@@ -612,40 +597,64 @@ export function MapView({
 
   /** Puts the middle of the explored world on screen at the mod's starting zoom. */
   const center = useCallback(() => {
+    const middle = anchor.current;
+    if (middle?.dim !== dimRef.current) return;
     cam.current = {
-      x: ((anchor.current?.rx ?? 0) + 0.5) * REGION_BLOCKS,
-      z: ((anchor.current?.rz ?? 0) + 0.5) * REGION_BLOCKS,
+      x: (middle.rx + 0.5) * REGION_BLOCKS,
+      z: (middle.rz + 0.5) * REGION_BLOCKS,
       scale: 2 * gRef.current,
     };
     moved();
   }, [moved]);
 
   /** The markers of the current dimension that this viewer may see. */
-  const loadMarkers = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/map/markers?dim=${dimRef.current}`, {
-        cache: "no-store",
-      });
-      if (!res.ok) return;
-      const body = (await res.json()) as { markers: MapMarker[]; me: Me };
-      markersRef.current = body.markers;
-      setMarkersState(body.markers);
-      setMe(body.me);
-      requestPaint();
-    } catch {
-      /* markers come back with the next refresh */
-    }
-  }, [requestPaint]);
-
-  const refresh = useCallback(
-    async (first: boolean) => {
-      void loadMarkers();
-      await refreshRegions(first, true);
-      if (first) {
-        await refreshRegions();
+  const loadMarkers = useCallback(
+    async (dimension: Dim, signal?: AbortSignal) => {
+      const revision = markersRevision.current;
+      try {
+        const res = await fetch(`/api/map/markers?dim=${dimension}`, {
+          cache: "no-store",
+          signal,
+        });
+        if (!res.ok) throw new Error(`markers ${res.status}`);
+        const body = (await res.json()) as { markers: MapMarker[]; me: Me };
+        if (signal?.aborted || dimension !== dimRef.current) return;
+        setMe(body.me);
+        setMarkersUnavailable(false);
+        if (revision !== markersRevision.current) return;
+        markersRef.current = body.markers;
+        setMarkersState(body.markers);
+        requestPaint();
+      } catch {
+        if (!signal?.aborted && dimension === dimRef.current)
+          setMarkersUnavailable(true);
       }
     },
-    [loadMarkers, refreshRegions],
+    [requestPaint],
+  );
+
+  const refresh = useCallback(
+    async (first: boolean, signal?: AbortSignal) => {
+      const dimension = dimRef.current;
+      void loadMarkers(dimension, signal);
+      try {
+        const res = await fetch(`/api/map/regions?dim=${dimension}&anchor=1`, {
+          signal,
+        });
+        if (!res.ok) throw new Error(`map extent ${res.status}`);
+        const { anchor: middle } = (await res.json()) as {
+          anchor: { rx: number; rz: number } | null;
+        };
+        if (signal?.aborted || dimension !== dimRef.current) return;
+        anchor.current = middle ? { ...middle, dim: dimension } : null;
+        if (first && !new URLSearchParams(location.search).has("m")) center();
+      } catch {
+        // A failed extent lookup must still allow the current viewport to load.
+      }
+      if (!signal?.aborted && dimension === dimRef.current)
+        await refreshRegions(true);
+    },
+    [center, loadMarkers, refreshRegions],
   );
 
   const setTool = (t: Tool) => {
@@ -757,11 +766,21 @@ export function MapView({
   // first load, a change of dimension, and a refresh every half minute
   useEffect(() => {
     dimRef.current = dim;
-    const first = setTimeout(() => void refresh(true), 0);
-    const timer = setInterval(() => void refresh(false), REFRESH_MS);
+    index.current = [];
+    indexKey.current = "";
+    anchor.current = null;
+    const controller = new AbortController();
+    const first = setTimeout(() => void refresh(true, controller.signal), 0);
+    const timer = setInterval(
+      () => void refresh(false, controller.signal),
+      REFRESH_MS,
+    );
     return () => {
+      controller.abort();
+      indexRequest.current?.abort();
       clearTimeout(first);
       clearInterval(timer);
+      clearTimeout(fetchTimer.current);
     };
   }, [dim, refresh]);
 
@@ -840,6 +859,7 @@ export function MapView({
   // ------------------------------------------------------------------ markers
 
   const setMarkers = (list: MapMarker[]) => {
+    markersRevision.current++;
     markersRef.current = list;
     setMarkersState(list);
     requestPaint();
@@ -882,7 +902,7 @@ export function MapView({
     }
   };
 
-  /** MapScreen.createMarker: a new marker where the map was right-clicked, opened in the editor. */
+  /** Opens the editor for a new marker at the chosen world position. */
   const startMarker = (wx: number, wz: number) => {
     if (!me.canCreate) {
       flash(
@@ -892,6 +912,7 @@ export function MapView({
       );
       return;
     }
+    if (toolRef.current === "marker") setTool("none");
     select(null);
     setMarkerError(null);
     setDraft({
@@ -1157,6 +1178,13 @@ export function MapView({
     }
     touchedArea.current = null;
     requestPaint();
+    if (toolRef.current === "marker") {
+      if (button === 0 || button === 2) {
+        const [wx, wz] = screenToWorld(cam.current, size.current, mx, my);
+        startMarker(wx, wz);
+      }
+      return;
+    }
     const hit = markerAt(
       cam.current,
       size.current,
@@ -1243,7 +1271,11 @@ export function MapView({
       if ((hit?.id ?? null) !== hoveredRef.current) {
         hoveredRef.current = hit?.id ?? null;
         e.currentTarget.setAttribute("title", hit?.name ?? "");
-        (e.currentTarget as HTMLElement).style.cursor = hit ? "pointer" : "";
+        (e.currentTarget as HTMLElement).style.cursor = hit
+          ? "pointer"
+          : toolRef.current === "none"
+            ? "grab"
+            : "crosshair";
         requestPaint();
       } else if (toolRef.current !== "none") requestPaint();
       return;
@@ -1347,7 +1379,10 @@ export function MapView({
       return;
     }
     clearTimeout(longPress.current);
-    if (!p.dragging && toolRef.current === "none") {
+    if (
+      !p.dragging &&
+      (toolRef.current === "none" || toolRef.current === "marker")
+    ) {
       mapClick(mx, my, p.button);
       return;
     }
@@ -1375,6 +1410,11 @@ export function MapView({
       return;
     }
     if (overlay !== "none") return;
+    if (e.key === "Enter" && tool === "marker" && e.target === root.current) {
+      e.preventDefault();
+      startMarker(cam.current.x, cam.current.z);
+      return;
+    }
     const step = 80;
     const keys: Record<string, [number, number]> = {
       ArrowLeft: [step, 0],
@@ -1413,6 +1453,7 @@ export function MapView({
 
   type Action =
     | "list"
+    | "place"
     | "markers"
     | "ruler"
     | "draw"
@@ -1434,6 +1475,12 @@ export function MapView({
       icon: "list",
       label: "Список меток [J]",
       pressed: listOpen,
+    },
+    {
+      action: "place",
+      icon: "plus",
+      label: "Поставить метку",
+      pressed: tool === "marker",
     },
     {
       action: "ruler",
@@ -1480,7 +1527,15 @@ export function MapView({
   ];
   function run(action: Action) {
     if (action === "list") setListOpen(!listOpen);
-    else if (action === "markers")
+    else if (action === "place") {
+      const placing = tool !== "marker";
+      setTool(placing ? "marker" : "none");
+      if (placing) {
+        closePanel();
+        if (gw < 420) setListOpen(false);
+        root.current?.focus();
+      }
+    } else if (action === "markers")
       savePrefs({ ...prefs, markers: !prefs.markers });
     else if (action === "ruler") setTool(tool === "ruler" ? "none" : "ruler");
     else if (action === "draw") setTool(tool === "draw" ? "none" : "draw");
@@ -1493,7 +1548,10 @@ export function MapView({
       setOverlay(overlay === "dims" ? "none" : "dims");
     else setOverlay("settings");
   }
-  const globeAt = toolbar.findIndex((b) => b.icon === "globe");
+  const visibleToolbar = toolbar.filter(
+    (b) => b.action !== "place" || me.canCreate,
+  );
+  const globeAt = visibleToolbar.findIndex((b) => b.icon === "globe");
 
   const selectedMarker = markers.find((x) => x.id === selectedId) ?? null;
   const drawBarW = 20 * 11 + 15;
@@ -1536,7 +1594,7 @@ export function MapView({
         aria-label="Инструменты карты"
         aria-orientation="vertical"
       >
-        {toolbar.map((b, i) => (
+        {visibleToolbar.map((b, i) => (
           <IconButton
             key={b.action}
             theme={theme}
@@ -1544,6 +1602,7 @@ export function MapView({
             icon={b.icon}
             label={b.label}
             pressed={b.pressed}
+            disabled={b.action === "place" && panel === "edit"}
             src={b.src}
             onClick={() => run(b.action)}
           />
@@ -1577,6 +1636,23 @@ export function MapView({
           <span className="atlas-title">
             Мир MineOrt &nbsp;·&nbsp; {DIM_NAMES[dim]}
           </span>
+        </Panel>
+      )}
+
+      {tool === "marker" && (
+        <Panel
+          role="status"
+          className="pointer-events-none text-center"
+          style={{
+            left: px(midX),
+            top: u(6),
+            transform: "translateX(-50%)",
+            width: "max-content",
+            maxWidth: u(freeRight - freeLeft),
+            padding: `${u(4)} ${u(6)}`,
+          }}
+        >
+          Выберите место на карте. Enter — поставить в центре.
         </Panel>
       )}
 
@@ -1867,7 +1943,7 @@ export function MapView({
       {status === "empty" && (
         <Panel
           role="status"
-          className="text-center"
+          className="pointer-events-none text-center"
           style={{
             left: "50%",
             top: "50%",
@@ -1882,7 +1958,7 @@ export function MapView({
       {status === "error" && (
         <Panel
           role="alert"
-          className="flex flex-col items-center text-center"
+          className="pointer-events-none flex flex-col items-center text-center"
           style={{
             left: "50%",
             top: "50%",
@@ -1894,7 +1970,7 @@ export function MapView({
           Не удалось загрузить карту.
           <button
             type="button"
-            className="atlas-text-btn"
+            className="atlas-text-btn pointer-events-auto"
             style={{ width: u(100) }}
             onClick={() => void refresh(true)}
           >
@@ -2252,9 +2328,11 @@ export function MapView({
           query={query}
           from={viewMid}
           emptyText={
-            me.canCreate
-              ? "Меток пока нет. Нажмите ПКМ по карте, чтобы поставить метку."
-              : "Меток пока нет."
+            markersUnavailable
+              ? "Не удалось загрузить метки."
+              : me.canCreate
+                ? "Меток пока нет. Нажмите «Поставить метку» или ПКМ по карте."
+                : "Меток пока нет."
           }
           onSort={(dir) => {
             const i = SORTS.findIndex((x) => x.id === sort);

@@ -71,7 +71,13 @@ const iso = (days: number, hour = 12) => {
   d.setUTCHours(hour, 0, 0, 0);
   return d.toISOString();
 };
-const localInput = (days: number) => iso(days, 18).slice(0, 16); // value for a datetime-local field
+const localInput = (days: number, hour = 18) => iso(days, hour).slice(0, 16);
+
+async function fillEventTime(page: Page, days: number) {
+  await page.getByLabel("Начало").fill(localInput(days));
+  if (process.env.FF_COMMUNITY_EVENTS === "true")
+    await page.getByLabel("Окончание").fill(localInput(days, 19));
+}
 
 test.beforeAll(async () => {
   for (const who of Object.keys(TG) as Who[]) {
@@ -377,7 +383,7 @@ test("a member creates an event; an outsider cannot join; the last seat goes to 
   await bob.goto("/social/calendar");
   await bob.getByText("＋ Создать событие").click();
   await bob.getByLabel("Название").fill(`Стройка ${TAG}`);
-  await bob.getByLabel("Начало").fill(localInput(3));
+  await fillEventTime(bob, 3);
   await bob.getByLabel("Лимит мест (необязательно)").fill("2");
   await bob.getByLabel("Место").fill("Спавн");
   await bob.getByRole("button", { name: "Создать событие" }).click();
@@ -385,7 +391,12 @@ test("a member creates an event; an outsider cannot join; the last seat goes to 
   const card = eventCard(bob, `Стройка ${TAG}`);
   await expect(card.getByText("Вы записаны")).toBeVisible();
   await expect(card.getByText("записалось 1 из 2")).toBeVisible();
-  await expect(card.getByText(/ваше время, UTC[+-−]?\d/)).toBeVisible();
+  await expect(
+    card
+      .getByRole("time")
+      .first()
+      .getByText(/ваше время, UTC[+-−]?\d/),
+  ).toBeVisible();
 
   const carol = await asUser(browser, "carol");
   await carol.goto("/social/calendar");
@@ -490,7 +501,7 @@ test("an event in the past is refused", async ({ browser }) => {
   await bob.goto("/social/calendar");
   await bob.getByText("＋ Создать событие").click();
   await bob.getByLabel("Название").fill(`Вчера ${TAG}`);
-  await bob.getByLabel("Начало").fill(localInput(-1));
+  await fillEventTime(bob, -1);
   await bob.getByRole("button", { name: "Создать событие" }).click();
   await expect(bob.getByText("Дата и время уже прошли.")).toBeVisible();
 });
@@ -511,11 +522,9 @@ test("time is shown in each viewer's own zone with the offset spelled out", asyn
     const page = await asUser(browser, "bob", { timezoneId: tz });
     await page.goto("/social/calendar?m=2027-01");
     const card = eventCard(page, `Зоны ${TAG}`);
-    await expect(card.getByText(`ваше время, ${label}`)).toBeVisible();
-    await expect(card.getByRole("time").first()).toHaveAttribute(
-      "title",
-      "2027-01-15 12:00 UTC",
-    );
+    const start = card.getByRole("time").first();
+    await expect(start.getByText(`ваше время, ${label}`)).toBeVisible();
+    await expect(start).toHaveAttribute("title", "2027-01-15 12:00 UTC");
   }
   const page = await asUser(browser, "bob", { timezoneId: "Asia/Tokyo" });
   await page.goto("/social/calendar?m=2027-01");

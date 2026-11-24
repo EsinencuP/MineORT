@@ -30,8 +30,8 @@ export class MarkerError extends Error {
 
 export const MARKERS_PER_HOUR = 10;
 export const MAX_ACTIVE_MARKERS = 100;
-const COLUMNS =
-  "id, author_id, kind, dim, x, y, z, name, description, icon, color, visibility, guild_id, moderation_status, deleted_at, created_at, updated_at, boundary";
+// The service reads either schema during deployment. toDtos controls what leaves the server.
+const COLUMNS = "*";
 
 /** What the map gets of a marker. Heights go to staff only; the map itself shows no numbers. */
 export type MarkerDto = {
@@ -87,9 +87,11 @@ async function toDtos(
           .eq("target_type", "marker")
       : Promise.resolve({ data: [], error: null }),
   ]);
-  if (bookmarks.error)
-    throw new Error(`marker bookmarks: ${bookmarks.error.message}`);
-  const saved = new Set(bookmarks.data.map((row) => row.target_id));
+  if (bookmarks.error && bookmarks.error.code !== "PGRST205")
+    console.error("marker bookmarks:", bookmarks.error.message);
+  const saved = bookmarks.data
+    ? new Set(bookmarks.data.map((row) => row.target_id))
+    : null;
   return rows.map((m) => ({
     id: m.id,
     kind: m.kind,
@@ -97,7 +99,7 @@ async function toDtos(
     x: m.x,
     z: m.z,
     ...(m.boundary ? { boundary: m.boundary } : {}),
-    ...(bookmarkEnabled ? { bookmarked: saved.has(m.id) } : {}),
+    ...(bookmarkEnabled && saved ? { bookmarked: saved.has(m.id) } : {}),
     ...(v.staff ? { y: m.y } : {}),
     name: m.name,
     description: m.description,
@@ -210,7 +212,7 @@ export async function createMarker(v: MarkerViewer, input: MarkerInput) {
       description: input.description,
       icon: input.icon,
       color: input.color,
-      boundary: input.boundary ?? null,
+      ...(input.boundary ? { boundary: input.boundary } : {}),
       visibility: input.kind === "label" ? "public" : input.visibility,
       guild_id: input.kind === "label" ? null : guildFor(v, input),
       moderation_status:
@@ -218,6 +220,8 @@ export async function createMarker(v: MarkerViewer, input: MarkerInput) {
     })
     .select(COLUMNS)
     .single();
+  if (error?.code === "PGRST204" && input.boundary)
+    throw new MarkerError("marker_boundary_unavailable");
   if (error) throw new Error(`map_markers insert: ${error.message}`);
   return (await toDtos(v, [data as MarkerRow]))[0];
 }
@@ -252,7 +256,9 @@ export async function updateMarker(
       description: input.description,
       icon: input.icon,
       color: input.color,
-      ...(input.boundary !== undefined ? { boundary: input.boundary } : {}),
+      ...(input.boundary !== undefined && (row.boundary || input.boundary)
+        ? { boundary: input.boundary }
+        : {}),
       visibility,
       guild_id: label ? row.guild_id : guildFor(v, { ...input, visibility }),
       moderation_status: status,
@@ -261,6 +267,8 @@ export async function updateMarker(
     .eq("id", id)
     .select(COLUMNS)
     .single();
+  if (error?.code === "PGRST204" && input.boundary)
+    throw new MarkerError("marker_boundary_unavailable");
   if (error) throw new Error(`map_markers update: ${error.message}`);
   return (await toDtos(v, [data as MarkerRow]))[0];
 }
