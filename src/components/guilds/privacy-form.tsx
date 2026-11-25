@@ -63,7 +63,8 @@ export function PrivacyForm({
             <option value="guild">Только моя гильдия</option>
           </select>
           <p className="text-ink-muted text-xs">
-            Скрыться совсем нельзя: администрация всегда видит игроков на карте.
+            Положение видно в реальном времени. Полностью скрыть его нельзя:
+            администраторы и модераторы всегда видят игроков на карте.
           </p>
         </div>
         <div className="flex flex-col gap-1.5">

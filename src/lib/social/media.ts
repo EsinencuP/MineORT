@@ -236,16 +236,12 @@ export async function purgeExpiredMedia(limit = 200) {
 /** Public gallery and project covers can be served before resolving a session. */
 async function canReadAttachment(
   id: string,
+  list: { target_type: string; target_id: string }[],
   m: { visibility: string; moderation_status: string },
   viewer: () => Promise<Viewer>,
 ): Promise<boolean> {
   if (m.visibility !== "public" || m.moderation_status !== "approved")
     return false;
-  const { data: atts } = await db()
-    .from("media_attachments")
-    .select("target_type, target_id")
-    .eq("media_id", id);
-  const list = atts ?? [];
   if (list.some((a) => a.target_type === "gallery")) return true;
   if (await isCoverOfOpenProject(id)) return true;
   const postIds = list
@@ -283,9 +279,17 @@ export async function readMedia(
     .maybeSingle();
   if (error) throw new Error(`media lookup: ${error.message}`);
   if (!m || m.deleted_at) return null;
+  const { data: attachments, error: attachmentError } = await db()
+    .from("media_attachments")
+    .select("target_type, target_id")
+    .eq("media_id", id);
+  if (attachmentError)
+    throw new Error(`media attachments lookup: ${attachmentError.message}`);
+  // Atlas files must be opened through the marker so its current visibility applies.
+  if (attachments.some((a) => a.target_type === "marker")) return null;
   let viewer: Promise<Viewer> | undefined;
   const resolveViewer = () => (viewer ??= getViewer());
-  if (!(await canReadAttachment(id, m, resolveViewer))) {
+  if (!(await canReadAttachment(id, attachments, m, resolveViewer))) {
     const who = await resolveViewer();
     if (
       !who.canModerate &&
@@ -293,15 +297,20 @@ export async function readMedia(
     )
       return null;
   }
+  return downloadMediaFile(m.storage_key, thumbnail);
+}
+
+/** Downloads a normalized file after the caller has authorized its enclosing object. */
+export async function downloadMediaFile(key: string, thumbnail: boolean) {
   const { data } = await storage().download(
-    m.storage_key,
+    key,
     thumbnail
       ? { transform: { width: 480, resize: "contain", quality: 75 } }
       : undefined,
   );
   if (data || !thumbnail) return data;
   // Local Storage and some hosted plans have no image transformation service.
-  const original = await storage().download(m.storage_key);
+  const original = await storage().download(key);
   if (!original.data) return null;
   const { default: sharp } = await import("sharp");
   const image = await sharp(Buffer.from(await original.data.arrayBuffer()))

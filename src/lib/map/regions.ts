@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/supabase-admin";
 import { decodeChunk, type ChunkColumns } from "./chunk-codec";
-import { renderTile } from "./tile/render";
+import { REGION_CHUNKS, renderTile } from "./tile/render";
 
 export type Dim = "overworld" | "nether";
 export type RegionRef = { serverId: string; dim: Dim; rx: number; rz: number };
@@ -11,20 +11,31 @@ type ChunkRow = { cx: number; cz: number; version: number; data: string };
 /** PostgREST returns bytea as `\x` followed by hex. */
 const fromBytea = (value: string) => Buffer.from(value.slice(2), "hex");
 
-/** Two half-region reads, so each stays under the API's row cap. */
+/** Two half-region reads and the north/west edges used for slope shading. */
 async function loadChunks(ref: RegionRef) {
   const chunks = new Map<string, ChunkColumns>();
   let newest = 0;
-  for (const half of [0, 16]) {
-    const { data, error } = await db()
+  const firstX = ref.rx * REGION_CHUNKS;
+  const firstZ = ref.rz * REGION_CHUNKS;
+  const query = () =>
+    db()
       .from("map_chunks")
       .select("cx, cz, version, data")
       .eq("server_id", ref.serverId)
-      .eq("dim", ref.dim)
-      .eq("rx", ref.rx)
-      .eq("rz", ref.rz)
-      .gte("cz", ref.rz * 32 + half)
-      .lt("cz", ref.rz * 32 + half + 16);
+      .eq("dim", ref.dim);
+  const results = await Promise.all([
+    ...[0, 16].map((half) =>
+      query()
+        .eq("rx", ref.rx)
+        .eq("rz", ref.rz)
+        .gte("cz", firstZ + half)
+        .lt("cz", firstZ + half + 16),
+    ),
+    query().or(
+      `and(cx.eq.${firstX - 1},cz.gte.${firstZ},cz.lt.${firstZ + REGION_CHUNKS}),and(cz.eq.${firstZ - 1},cx.gte.${firstX},cx.lt.${firstX + REGION_CHUNKS})`,
+    ),
+  ]);
+  for (const { data, error } of results) {
     if (error) throw new Error(`map_chunks read: ${error.message}`);
     for (const row of data as ChunkRow[]) {
       chunks.set(`${row.cx},${row.cz}`, decodeChunk(fromBytea(row.data)));

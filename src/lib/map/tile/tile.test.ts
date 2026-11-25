@@ -119,4 +119,27 @@ describe("tile renderer", () => {
     const alone = pixels(renderTile(0, 0, new Map([["1,0", a]])))(16, 4);
     expect(withNeighbour).not.toEqual(alone);
   });
+
+  it("shades the first pixel using adjacent regions to the north and west", () => {
+    const color = 0xff7fb238;
+    const at = pixels(
+      renderTile(
+        0,
+        0,
+        new Map([
+          ["0,0", solid(color, 70)],
+          ["0,-1", solid(color, 66)],
+          ["-1,0", solid(color, 60)],
+        ]),
+      ),
+    );
+    expect(at(0, 0)).toEqual([
+      ...rgb(papyrus(color, 70, 66, 60, 0, 0, 0)),
+      255,
+    ]);
+    expect(at(1, 1)).toEqual([
+      ...rgb(papyrus(color, 70, 70, 70, 0, 1, 1)),
+      255,
+    ]);
+  });
 });

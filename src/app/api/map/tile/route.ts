@@ -34,7 +34,12 @@ export async function GET(req: NextRequest) {
     );
   }
   const serverId = await mapServerId();
-  const tile = serverId ? await loadTile(serverId, dim, +rx, +rz) : null;
+  const expected = q.get("v");
+  const version =
+    expected && /^\d+$/.test(expected) ? Number(expected) : undefined;
+  const tile = serverId
+    ? await loadTile(serverId, dim, +rx, +rz, version)
+    : null;
   if (!tile) return new NextResponse(null, { status: 404 });
 
   const etag = `"${tile.version}"`;

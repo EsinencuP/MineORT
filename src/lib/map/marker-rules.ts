@@ -1,10 +1,12 @@
 // Who sees and changes a marker (R13, R18), and what a valid marker is. Pure, so it is tested alone.
 import icons from "@/components/map/icons.json";
 import { validPolygon, type Vertex } from "./polygon";
+import { validRoutePoints } from "./route-geometry";
+import type { TrailPoint } from "./trail-geometry";
 
 export type Visibility = "public" | "guild" | "private";
 export type ModerationStatus = "pending" | "approved" | "hidden";
-export type MarkerKind = "point" | "label";
+export type MarkerKind = "point" | "label" | "path" | "route";
 export type Dim = "overworld" | "nether";
 
 export type MarkerViewer = {
@@ -28,6 +30,7 @@ export const GUEST_VIEWER: MarkerViewer = {
 
 export type MarkerRow = {
   boundary?: Vertex[] | null;
+  geometry?: TrailPoint[][] | null;
   id: string;
   author_id: string;
   kind: MarkerKind;
@@ -49,6 +52,7 @@ export type MarkerRow = {
 
 export type MarkerInput = {
   boundary?: Vertex[] | null;
+  routePoints?: TrailPoint[];
   kind: MarkerKind;
   dim: Dim;
   x: number;
@@ -104,7 +108,10 @@ const int = (v: unknown) =>
   typeof v === "number" && Number.isInteger(v) ? v : NaN;
 
 /** Validates what a client sends; null when anything is off. */
-export function parseMarkerInput(raw: unknown): MarkerInput | null {
+export function parseMarkerInput(
+  raw: unknown,
+  mode: "create" | "update" = "create",
+): MarkerInput | null {
   const r = (raw ?? {}) as Record<string, unknown>;
   const name = typeof r.name === "string" ? r.name.trim() : "";
   const description =
@@ -112,12 +119,7 @@ export function parseMarkerInput(raw: unknown): MarkerInput | null {
   const x = int(r.x);
   const z = int(r.z);
   const y = r.y === null || r.y === undefined ? null : int(r.y);
-  const kind =
-    r.kind === "label"
-      ? "label"
-      : r.kind === undefined || r.kind === "point"
-        ? "point"
-        : null;
+  const kind = r.kind === undefined ? "point" : r.kind;
   const color =
     r.color === null || r.color === undefined || r.color === ""
       ? null
@@ -126,7 +128,14 @@ export function parseMarkerInput(raw: unknown): MarkerInput | null {
         ? r.color.toLowerCase()
         : undefined;
   if (
-    !kind ||
+    (kind !== "point" &&
+      kind !== "label" &&
+      kind !== "path" &&
+      kind !== "route") ||
+    (kind === "route"
+      ? (mode === "create" || r.routePoints !== undefined) &&
+        !validRoutePoints(r.routePoints)
+      : r.routePoints !== undefined) ||
     (r.boundary !== undefined &&
       r.boundary !== null &&
       (kind !== "label" || !validPolygon(r.boundary))) ||
@@ -150,6 +159,9 @@ export function parseMarkerInput(raw: unknown): MarkerInput | null {
   return {
     ...(r.boundary !== undefined
       ? { boundary: r.boundary as Vertex[] | null }
+      : {}),
+    ...(r.routePoints !== undefined
+      ? { routePoints: r.routePoints as TrailPoint[] }
       : {}),
     kind,
     dim: r.dim,

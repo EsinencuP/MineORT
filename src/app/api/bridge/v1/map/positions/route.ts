@@ -6,6 +6,7 @@ import {
   type Resolved,
 } from "@/lib/map/positions";
 import { broadcast } from "@/lib/map/realtime";
+import { recordTrailPositions } from "@/lib/map/trails";
 import { SLOW_INTERVAL_MS, FAST_INTERVAL_MS } from "@/lib/map/viewers";
 import {
   guildTopic,
@@ -19,9 +20,9 @@ import { db } from "@/lib/supabase-admin";
 export const dynamic = "force-dynamic";
 
 /**
- * Where the players are, as the Paper plugin sees it. Nothing is stored: each batch is split by
- * who may see whom and pushed to the private channels. The answer tells the plugin how often to
- * send the next batch (every second while someone has the map open, every 10 seconds otherwise).
+ * Where the players are, as the Paper plugin sees it. Sampled points go to trail history and
+ * the current batch goes to private channels. The plugin sends every second while watched
+ * and every five seconds otherwise so idle trail history still keeps its time resolution.
  */
 export async function POST(req: NextRequest) {
   const raw = await req.text();
@@ -36,8 +37,9 @@ export async function POST(req: NextRequest) {
   }
 
   const [audience, { data, error }] = await Promise.all([
-    db().rpc("map_live_audience"),
+    db().rpc("map_live_player_audience"),
     db().rpc("map_resolve_players", { p_uuids: positions.map((p) => p.uuid) }),
+    recordTrailPositions(auth.serverId, positions),
   ]);
   if (audience.error)
     throw new Error(`map live audience: ${audience.error.message}`);
@@ -60,29 +62,47 @@ export async function POST(req: NextRequest) {
 
   const now = Date.now();
   const groups = groupByTopic(positions, resolved);
+  const staffDots = groups.get(TOPIC_ADMIN) ?? [];
+  const moderatorDots = staffDots.map(({ n, d, x, z, r }) => ({
+    n,
+    d,
+    x,
+    z,
+    r,
+  }));
+  const positionsByNickname = new Map(moderatorDots.map((dot) => [dot.n, dot]));
   try {
     const messages = (
       audience.data as {
         session_id: string;
         guild_id: string | null;
         staff: boolean;
+        show_coordinates: boolean;
+        player_nickname: string | null;
       }[]
     ).map((viewer) => {
       const publicDots = groups.get(TOPIC_ALL) ?? [];
       const guildDots = viewer.guild_id
         ? (groups.get(guildTopic(viewer.guild_id)) ?? [])
         : [];
+      const own = viewer.player_nickname
+        ? positionsByNickname.get(viewer.player_nickname)
+        : undefined;
       const dots = viewer.staff
-        ? (groups.get(TOPIC_ADMIN) ?? [])
+        ? viewer.show_coordinates
+          ? staffDots
+          : moderatorDots
         : [
             ...new Map(
-              [...publicDots, ...guildDots].map((dot) => [dot.n, dot]),
+              [...publicDots, ...guildDots, ...(own ? [own] : [])].map(
+                (dot) => [dot.n, dot],
+              ),
             ).values(),
           ];
       return {
         topic: sessionTopic(viewer.session_id),
         event: "pos",
-        payload: { t: now, p: dots, staff: viewer.staff },
+        payload: { t: now, p: dots, staff: viewer.show_coordinates },
       };
     });
     for (let i = 0; i < messages.length; i += 15)

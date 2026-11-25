@@ -56,13 +56,21 @@ import {
 import { PlayerFeed, type FeedState } from "./players";
 import {
   drawBoundary,
+  drawMarkerPath,
   drawMarkers,
   markerAt,
   markerPoint,
   type MapMarker,
 } from "./render/markers";
 import { drawPlayers } from "./render/players";
+import { TrailLayer } from "./render/trails";
 import { MAX_VERTICES, validPolygon, type Vertex } from "@/lib/map/polygon";
+import type { TrailHistory, TrailPoint } from "@/lib/map/trail-geometry";
+import {
+  MAX_ROUTE_POINTS,
+  routeLength,
+  validRoutePoints,
+} from "@/lib/map/route-geometry";
 
 type Dim = "overworld" | "nether";
 type Ref = { rx: number; rz: number; version: number };
@@ -84,11 +92,12 @@ type Me = {
   canModerate: boolean;
   inGuild: boolean;
 };
-type Tool = "none" | "ruler" | "draw" | "marker";
+type Tool = "none" | "ruler" | "draw" | "marker" | "route";
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 16;
 const REFRESH_MS = 30_000;
+const TRAILS_REFRESH_MS = 15_000;
 const MAX_TILES = 48;
 const AREA_CLOSE_RADIUS = 8;
 const THEME_KEY = "mineort.map.theme";
@@ -139,6 +148,7 @@ export function MapView({
   );
 
   const feed = useRef<PlayerFeed | null>(null);
+  const trails = useRef<TrailLayer | null>(null);
   const easing = useRef(false);
   const [feedState, setFeedState] = useState<FeedState>("connecting");
   const [staff, setStaff] = useState(false);
@@ -177,6 +187,9 @@ export function MapView({
   const erased = useRef<Stroke[] | null>(null);
   const undo = useRef<(() => void)[]>([]);
   const ruler = useRef<[number, number][]>([]);
+  const [routePoints, setRoutePoints] = useState<TrailPoint[]>([]);
+  const routePointsRef = useRef<TrailPoint[]>([]);
+  const draggedRoutePoint = useRef<number | null>(null);
   const mouse = useRef<[number, number] | null>(null);
 
   // markers
@@ -309,6 +322,12 @@ export function MapView({
       ctx.fillRect(w - i * b - b, 0, b, h);
     }
 
+    if (prefsRef.current.players && trails.current?.dim === dimRef.current)
+      trails.current.draw(ctx, c, size.current, {
+        own: t.accent,
+        peer: t.ink,
+      });
+
     const tl = toolRef.current;
     if (prefsRef.current.drawings || tl === "draw") {
       for (const s of strokesOf(dimRef.current))
@@ -394,6 +413,7 @@ export function MapView({
     if (d0 && d0.dim === dimRef.current)
       shown.push({
         ...d0,
+        geometry: d0.routePoints ? [d0.routePoints] : d0.geometry,
         id: d0.id ?? "draft",
         status: "approved",
         author: "",
@@ -430,6 +450,25 @@ export function MapView({
         areaPointsRef.current,
         t.accent,
         false,
+        true,
+      );
+    for (const marker of shown) {
+      if (marker.geometry)
+        drawMarkerPath(
+          ctx,
+          c,
+          size.current,
+          marker.geometry,
+          marker.color ?? t.accent,
+        );
+    }
+    if (tl === "route")
+      drawMarkerPath(
+        ctx,
+        c,
+        size.current,
+        [routePointsRef.current],
+        t.accent,
         true,
       );
     drawMarkers(ctx, c, size.current, shown, {
@@ -482,6 +521,8 @@ export function MapView({
   /** Keeps painting while a dot is still gliding to its new position. */
   const glide = useCallback(() => {
     if (feed.current) setStaff(feed.current.staff);
+    const layer = trails.current;
+    if (layer?.nickname) layer.observe(feed.current?.dots.get(layer.nickname));
     if (easing.current) return;
     easing.current = true;
     const step = () => {
@@ -661,7 +702,17 @@ export function MapView({
     [center, loadMarkers, refreshRegions],
   );
 
+  const changeRoute = (points: TrailPoint[]) => {
+    routePointsRef.current = points;
+    setRoutePoints(points);
+    requestPaint();
+  };
+
   const setTool = (t: Tool) => {
+    if (toolRef.current === "route" && t !== "route") {
+      draggedRoutePoint.current = null;
+      changeRoute([]);
+    }
     toolRef.current = t;
     setToolState(t);
     current.current = null;
@@ -845,6 +896,40 @@ export function MapView({
     };
   }, [glide]);
 
+  useEffect(() => {
+    if (!me.signedIn || !prefs.players) return;
+    const controller = new AbortController();
+    const layer = new TrailLayer(dim);
+    let timer: ReturnType<typeof setTimeout>;
+    async function refreshTrails() {
+      try {
+        const response = await fetch(`/api/map/trails?dim=${dim}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(String(response.status));
+        const history = (await response.json()) as TrailHistory;
+        if (controller.signal.aborted) return;
+        layer.replace(history);
+        if (layer.nickname)
+          layer.observe(feed.current?.dots.get(layer.nickname));
+        trails.current = layer;
+      } catch {
+        if (controller.signal.aborted) return;
+        if (trails.current === layer) trails.current = null;
+      }
+      requestPaint();
+      timer = setTimeout(() => void refreshTrails(), TRAILS_REFRESH_MS);
+    }
+    void refreshTrails();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+      if (trails.current === layer) trails.current = null;
+      requestPaint();
+    };
+  }, [dim, me.signedIn, prefs.players, requestPaint]);
+
   // wheel zoom needs a non-passive listener to keep the page from scrolling
   useEffect(() => {
     const cv = canvas.current;
@@ -907,7 +992,11 @@ export function MapView({
   };
 
   /** Opens the editor for a new marker at the chosen world position. */
-  const startMarker = (wx: number, wz: number) => {
+  const startMarker = (
+    wx: number,
+    wz: number,
+    options?: Pick<Draft, "kind" | "routePoints">,
+  ) => {
     if (!me.canCreate) {
       flash(
         me.signedIn
@@ -916,23 +1005,34 @@ export function MapView({
       );
       return;
     }
-    if (toolRef.current === "marker") setTool("none");
+    if (toolRef.current === "marker" || toolRef.current === "route")
+      setTool("none");
     select(null);
     setMarkerError(null);
     setDraft({
       id: null,
-      kind: "point",
+      kind: options?.kind ?? "point",
+      routePoints: options?.routePoints,
       dim: dimRef.current,
       x: Math.floor(wx),
       z: Math.floor(wz),
       y: null,
-      name: `Метка ${markersRef.current.filter((m) => m.mine).length + 1}`,
+      name: `${options?.kind === "route" ? "Маршрут" : options?.kind === "path" ? "Путь" : "Метка"} ${markersRef.current.filter((m) => m.mine).length + 1}`,
       description: "",
       icon: "pin",
       color: null,
       visibility: "private",
     });
     setPanel("edit");
+  };
+
+  const finishRoute = () => {
+    const points = routePointsRef.current;
+    if (!validRoutePoints(points)) {
+      flash("Укажите минимум две разные соседние точки маршрута.");
+      return;
+    }
+    startMarker(...points[0], { kind: "route", routePoints: points });
   };
 
   const editMarker = (m: MapMarker) => {
@@ -950,6 +1050,7 @@ export function MapView({
       color: m.color,
       visibility: m.visibility,
       boundary: m.boundary,
+      geometry: m.geometry,
     });
     setPanel("edit");
   };
@@ -1141,6 +1242,11 @@ export function MapView({
     return [e.clientX - r.left, e.clientY - r.top];
   };
 
+  const routePointAt = (mx: number, my: number): TrailPoint =>
+    screenToWorld(cam.current, size.current, mx, my).map(
+      Math.round,
+    ) as TrailPoint;
+
   const eraseAt = (mx: number, my: number) => {
     const list = strokesOf(dimRef.current);
     for (let i = list.length - 1; i >= 0; i--) {
@@ -1239,6 +1345,17 @@ export function MapView({
       cam: cam.current,
       dragging: false,
     };
+    if (
+      toolRef.current === "route" &&
+      e.button === 0 &&
+      pointers.current.size === 1
+    ) {
+      const index = routePointsRef.current.findIndex(([x, z]) => {
+        const [sx, sy] = worldToScreen(cam.current, size.current, x, z);
+        return Math.hypot(mx - sx, my - sy) <= 8;
+      });
+      draggedRoutePoint.current = index === -1 ? null : index;
+    }
     clearTimeout(longPress.current);
     // a long press on a touch screen does what a right click does
     if (e.pointerType === "touch" && toolRef.current === "none" && !areaEdit) {
@@ -1309,6 +1426,7 @@ export function MapView({
     const p = press.current;
     if (all.length === 2) {
       current.current = null;
+      draggedRoutePoint.current = null;
       const d = Math.hypot(all[0].x - all[1].x, all[0].y - all[1].y);
       if (pinch.current) {
         const r = e.currentTarget.getBoundingClientRect();
@@ -1323,6 +1441,17 @@ export function MapView({
       return;
     }
     if (!p) return;
+    const index = draggedRoutePoint.current;
+    if (toolRef.current === "route" && index !== null) {
+      p.dragging ||= Math.hypot(mx - p.x, my - p.y) > 3 * gRef.current;
+      if (p.dragging) {
+        const point = routePointAt(mx, my);
+        changeRoute(
+          routePointsRef.current.map((old, i) => (i === index ? point : old)),
+        );
+      }
+      return;
+    }
     if (toolRef.current === "draw" && p.button === 0) {
       if (drawRef.current.tool === "eraser") {
         eraseAt(mx, my);
@@ -1363,6 +1492,22 @@ export function MapView({
     if (!p || pointers.current.size > 0) return;
     press.current = null;
     const [mx, my] = local(e);
+    if (toolRef.current === "route") {
+      const grabbed = draggedRoutePoint.current !== null;
+      draggedRoutePoint.current = null;
+      if (e.type === "pointercancel" || p.dragging || grabbed || p.button !== 0)
+        return;
+      const points = routePointsRef.current;
+      const point = routePointAt(mx, my);
+      const last = points.at(-1);
+      if (last && last[0] === point[0] && last[1] === point[1]) return;
+      if (points.length >= MAX_ROUTE_POINTS) {
+        flash(`Максимум точек маршрута: ${MAX_ROUTE_POINTS}.`);
+        return;
+      }
+      changeRoute([...points, point]);
+      return;
+    }
     if (toolRef.current === "draw" && p.button === 0) {
       const list = strokesOf(dimRef.current);
       if (drawRef.current.tool === "eraser") {
@@ -1435,6 +1580,11 @@ export function MapView({
       return;
     }
     if (overlay !== "none") return;
+    if (e.key === "Enter" && tool === "route" && e.target === root.current) {
+      e.preventDefault();
+      finishRoute();
+      return;
+    }
     if (e.key === "Enter" && tool === "marker" && e.target === root.current) {
       e.preventDefault();
       startMarker(cam.current.x, cam.current.z);
@@ -1481,6 +1631,8 @@ export function MapView({
   type Action =
     | "list"
     | "place"
+    | "route"
+    | "save-path"
     | "markers"
     | "ruler"
     | "draw"
@@ -1509,6 +1661,13 @@ export function MapView({
       label: "Поставить метку",
       pressed: tool === "marker",
     },
+    {
+      action: "route",
+      icon: "line",
+      label: "Нарисовать маршрут",
+      pressed: tool === "route",
+    },
+    { action: "save-path", icon: "check", label: "Сохранить путь" },
     {
       action: "ruler",
       icon: "ruler",
@@ -1562,6 +1721,17 @@ export function MapView({
         if (gw < 420) setListOpen(false);
         root.current?.focus();
       }
+    } else if (action === "route") {
+      const placing = tool !== "route";
+      setTool(placing ? "route" : "none");
+      if (placing) {
+        closePanel();
+        setListOpen(false);
+        root.current?.focus();
+      }
+    } else if (action === "save-path") {
+      setTool("none");
+      startMarker(cam.current.x, cam.current.z, { kind: "path" });
     } else if (action === "markers")
       savePrefs({ ...prefs, markers: !prefs.markers });
     else if (action === "ruler") setTool(tool === "ruler" ? "none" : "ruler");
@@ -1575,8 +1745,9 @@ export function MapView({
       setOverlay(overlay === "dims" ? "none" : "dims");
     else setOverlay("settings");
   }
+  const markerActions: Action[] = ["place", "route", "save-path"];
   const visibleToolbar = toolbar.filter(
-    (b) => b.action !== "place" || me.canCreate,
+    (b) => !markerActions.includes(b.action) || me.canCreate,
   );
   const globeAt = visibleToolbar.findIndex((b) => b.icon === "globe");
 
@@ -1612,6 +1783,9 @@ export function MapView({
           if (toolRef.current !== "none") requestPaint();
         }}
         onContextMenu={(e) => e.preventDefault()}
+        onDoubleClick={() => {
+          if (tool === "route") finishRoute();
+        }}
       />
 
       {/* MapScreen.drawToolbar */}
@@ -1630,7 +1804,9 @@ export function MapView({
             label={b.label}
             pressed={b.pressed}
             disabled={
-              (b.action === "place" && panel === "edit") ||
+              (markerActions.includes(b.action) && panel === "edit") ||
+              (tool === "route" &&
+                (b.action === "dims" || b.action === "list")) ||
               (areaEdit && (b.action === "ruler" || b.action === "draw"))
             }
             src={b.src}
@@ -1683,6 +1859,37 @@ export function MapView({
           }}
         >
           Выберите место на карте. Enter — поставить в центре.
+        </Panel>
+      )}
+
+      {tool === "route" && (
+        <Panel
+          role="region"
+          aria-label="Построение маршрута"
+          className="atlas-area-editor"
+        >
+          <p>
+            Ставьте точки щелчком и перетаскивайте их. Двойной щелчок завершает
+            маршрут.
+          </p>
+          <p role="status">Длина {fmtDistance(routeLength(routePoints))} бл.</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="atlas-inset px-2 py-1"
+              disabled={routePoints.length < 2}
+              onClick={finishRoute}
+            >
+              Завершить маршрут
+            </button>
+            <button
+              type="button"
+              className="atlas-inset px-2 py-1"
+              onClick={() => setTool("none")}
+            >
+              Отмена
+            </button>
+          </div>
         </Panel>
       )}
 

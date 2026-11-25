@@ -41,7 +41,7 @@ export async function GET() {
         token,
         expiresAt,
         topics: [sessionTopic(user.sessionId)],
-        staff: viewer.staff,
+        staff: viewer.showCoordinates,
       },
       { headers: { "Cache-Control": "no-store" } },
     );

@@ -24,15 +24,18 @@ export function ImagePicker({
   max = 10,
   name = "upload",
   withCaptions = false,
+  uploadUrl = "/api/social/upload-url",
 }: {
   max?: number;
   name?: string;
   /** Adds a caption field under every finished file (`caption`, same order as the files). */
   withCaptions?: boolean;
+  uploadUrl?: string;
 }) {
   const [tiles, setTiles] = useState<Tile[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const previews = useRef(new Set<string>());
   const busy = tiles.some((t) => t.state === "uploading");
 
   // Keep the form from being sent while a file is still on its way.
@@ -46,18 +49,24 @@ export function ImagePicker({
     return () => form.removeEventListener("submit", onSubmit);
   }, [busy]);
 
-  useEffect(
-    () => () => tiles.forEach((t) => URL.revokeObjectURL(t.preview)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
+  useEffect(() => {
+    const urls = previews.current;
+    return () => {
+      for (const url of urls) URL.revokeObjectURL(url);
+      urls.clear();
+    };
+  }, []);
 
   const patch = (key: string, next: Partial<Tile>) =>
     setTiles((all) => all.map((t) => (t.key === key ? { ...t, ...next } : t)));
 
   async function upload(tile: Tile, file: File) {
     try {
-      const res = await fetch("/api/social/upload-url", { method: "POST" });
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
       const body = (await res.json()) as {
         path?: string;
         token?: string;
@@ -95,6 +104,7 @@ export function ImagePicker({
         preview: URL.createObjectURL(file),
         state: "uploading",
       };
+      previews.current.add(tile.preview);
       if (!TYPES.includes(file.type)) {
         setTiles((all) => [
           ...all,
@@ -121,7 +131,10 @@ export function ImagePicker({
 
   const remove = (key: string) => {
     const t = tiles.find((x) => x.key === key);
-    if (t) URL.revokeObjectURL(t.preview);
+    if (t) {
+      URL.revokeObjectURL(t.preview);
+      previews.current.delete(t.preview);
+    }
     setTiles((all) => all.filter((x) => x.key !== key));
   };
 

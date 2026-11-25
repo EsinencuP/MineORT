@@ -13,6 +13,7 @@ export type Dot = {
   y?: number;
   facing: number;
   seen: number;
+  sampledAt: number;
 };
 
 export type FeedState =
@@ -76,7 +77,7 @@ export class PlayerFeed {
         const channel = client
           .channel(topic, { config: { private: true } })
           .on("broadcast", { event: "pos" }, ({ payload }) =>
-            this.receive(payload as { p: Wire[]; staff: boolean }),
+            this.receive(payload as { p: Wire[]; staff: boolean; t?: number }),
           )
           .subscribe((status) => {
             if (this.stopped) return;
@@ -153,7 +154,7 @@ export class PlayerFeed {
     this.stop();
   }
 
-  private receive(payload: { p: Wire[]; staff: boolean }) {
+  private receive(payload: { p: Wire[]; staff: boolean; t?: number }) {
     const now = Date.now();
     this.staff = payload.staff;
     const visible = new Set((payload.p ?? []).map((wire) => wire.n));
@@ -175,6 +176,7 @@ export class PlayerFeed {
         y: w.y,
         facing: w.r,
         seen: now,
+        sampledAt: payload.t ?? now,
       });
     }
     this.onChange();

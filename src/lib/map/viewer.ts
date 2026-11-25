@@ -4,7 +4,7 @@ import { db } from "@/lib/supabase-admin";
 
 /**
  * What decides a viewer's channels: the active guild and whether the session is a staff one.
- * Only an administrator with a staff session and confirmed TOTP sees the staff channel.
+ * Moderators and administrators need a staff session and confirmed TOTP for the staff channel.
  */
 export async function loadViewer(user: {
   userId: string;
@@ -14,6 +14,7 @@ export async function loadViewer(user: {
   userId: string;
   guildId: string | null;
   staff: boolean;
+  showCoordinates: boolean;
   /** an approved community member: only they, and staff, may see players */
   member: boolean;
 }> {
@@ -44,13 +45,14 @@ export async function loadViewer(user: {
     if (guild.status !== "active") guildId = null;
   }
   const staff =
-    user.site_role === "admin" &&
+    (user.site_role === "admin" || user.site_role === "moderator") &&
     user.isAdminSession &&
     (await hasConfirmedTotp(user.userId));
   return {
     userId: user.userId,
     guildId,
     staff,
+    showCoordinates: staff && user.site_role === "admin",
     member: !!membership,
   };
 }

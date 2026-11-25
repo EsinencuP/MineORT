@@ -20,6 +20,9 @@ import { loadViewer } from "./viewer";
 import type { Vertex } from "./polygon";
 import { awardProgress } from "@/lib/community/progress";
 import { isEnabled } from "@/lib/flags";
+import { loadOwnRecentPath } from "./trails";
+import { validRoutePoints } from "./route-geometry";
+import type { TrailPoint } from "./trail-geometry";
 
 /** Stable error codes of the map markers; user texts live in access/messages.ts. */
 export class MarkerError extends Error {
@@ -36,6 +39,7 @@ const COLUMNS = "*";
 /** What the map gets of a marker. Heights go to staff only; the map itself shows no numbers. */
 export type MarkerDto = {
   boundary?: Vertex[] | null;
+  geometry?: TrailPoint[][];
   bookmarked?: boolean;
   id: string;
   kind: MarkerRow["kind"];
@@ -64,7 +68,7 @@ export async function getMarkerViewer(): Promise<MarkerViewer> {
   return {
     userId: user.userId,
     member: v.member && social.cls !== "restricted",
-    staff: v.staff,
+    staff: v.showCoordinates,
     moderator: social.canModerate,
     guildId: v.member ? v.guildId : null,
   };
@@ -99,6 +103,7 @@ async function toDtos(
     x: m.x,
     z: m.z,
     ...(m.boundary ? { boundary: m.boundary } : {}),
+    ...(m.geometry ? { geometry: m.geometry } : {}),
     ...(bookmarkEnabled && saved ? { bookmarked: saved.has(m.id) } : {}),
     ...(v.staff ? { y: m.y } : {}),
     name: m.name,
@@ -119,7 +124,10 @@ async function toDtos(
 }
 
 async function loadRow(id: string): Promise<MarkerRow | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+  )
+    return null;
   const { data, error } = await db()
     .from("map_markers")
     .select(COLUMNS)
@@ -127,6 +135,11 @@ async function loadRow(id: string): Promise<MarkerRow | null> {
     .maybeSingle();
   if (error) throw new Error(`map_markers read: ${error.message}`);
   return data as MarkerRow | null;
+}
+
+export async function getVisibleMarkerRow(v: MarkerViewer, id: string) {
+  const row = await loadRow(id);
+  return row && canSee(v, row) ? row : null;
 }
 
 /** Every marker of a dimension this viewer may see (R13): the rest never leaves the server. */
@@ -147,8 +160,8 @@ export async function listMarkers(v: MarkerViewer, dim: Dim) {
 
 /** One marker for a direct link; null when it does not exist or is not this viewer's to see. */
 export async function getMarker(v: MarkerViewer, id: string) {
-  const row = await loadRow(id);
-  if (!row || !canSee(v, row)) return null;
+  const row = await getVisibleMarkerRow(v, id);
+  if (!row) return null;
   return (await toDtos(v, [row]))[0];
 }
 
@@ -185,6 +198,7 @@ export async function createMarker(v: MarkerViewer, input: MarkerInput) {
     throw new MarkerError("marker_forbidden");
   if (input.kind === "label" && !v.staff)
     throw new MarkerError("label_forbidden");
+  const guildId = input.kind !== "label" ? guildFor(v, input) : null;
   const { count, error: countError } = await db()
     .from("map_markers")
     .select("id", { count: "exact", head: true })
@@ -199,22 +213,34 @@ export async function createMarker(v: MarkerViewer, input: MarkerInput) {
   )
     throw new MarkerError("marker_rate_limited");
 
+  let geometry: TrailPoint[][] | undefined;
+  if (input.kind === "path") {
+    geometry = await loadOwnRecentPath(v.userId, input.dim);
+    if (!geometry.length) throw new MarkerError("marker_path_empty");
+  } else if (input.kind === "route") {
+    if (!validRoutePoints(input.routePoints))
+      throw new MarkerError("marker_route_invalid");
+    geometry = [input.routePoints];
+  }
+  const anchor = geometry?.[0]?.[0];
+
   const { data, error } = await db()
     .from("map_markers")
     .insert({
       author_id: v.userId,
       kind: input.kind,
       dim: input.dim,
-      x: input.x,
-      y: input.y,
-      z: input.z,
+      x: anchor ? Math.floor(anchor[0]) : input.x,
+      y: anchor ? null : input.y,
+      z: anchor ? Math.floor(anchor[1]) : input.z,
       name: input.name,
       description: input.description,
       icon: input.icon,
       color: input.color,
       ...(input.boundary ? { boundary: input.boundary } : {}),
+      ...(geometry ? { geometry } : {}),
       visibility: input.kind === "label" ? "public" : input.visibility,
-      guild_id: input.kind === "label" ? null : guildFor(v, input),
+      guild_id: guildId,
       moderation_status:
         input.kind === "label" ? "approved" : statusFor(v, input.visibility),
     })
@@ -277,10 +303,11 @@ export async function deleteMarker(v: MarkerViewer, id: string) {
   const row = await loadRow(id);
   if (!row || !canSee(v, row)) throw new MarkerError("marker_not_found");
   if (!canDelete(v, row)) throw new MarkerError("forbidden");
-  await db()
+  const { error } = await db()
     .from("map_markers")
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
+  if (error) throw new Error(`map_markers delete: ${error.message}`);
   if (v.userId !== row.author_id)
     await writeAudit(v.userId!, "marker.deleted", { marker_id: id });
 }

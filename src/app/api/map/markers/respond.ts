@@ -2,10 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { messageFor } from "@/lib/access/messages";
 import { isEnabled } from "@/lib/flags";
 import { MarkerError } from "@/lib/map/markers";
+import { SocialError } from "@/lib/social/errors";
 
 const STATUS: Record<string, number> = {
   marker_not_found: 404,
   marker_rate_limited: 429,
+  upload_rate_limited: 429,
   marker_forbidden: 403,
   label_forbidden: 403,
   forbidden: 403,
@@ -40,7 +42,8 @@ export async function answer(fn: () => Promise<unknown>) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (e) {
-    if (e instanceof MarkerError) return fail(e.code);
+    if (e instanceof MarkerError || e instanceof SocialError)
+      return fail(e.code);
     throw e;
   }
 }

@@ -38,7 +38,7 @@ export async function PATCH(
   const body = (await jsonBody(req)) as { boundary?: unknown } | null;
   if (body?.boundary != null && !validPolygon(body.boundary))
     return fail("marker_boundary_invalid");
-  const input = parseMarkerInput(body);
+  const input = parseMarkerInput(body, "update");
   if (!input) return fail("marker_invalid");
   return answer(async () => ({
     marker: await updateMarker(await getMarkerViewer(), id, input),

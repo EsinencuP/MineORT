@@ -1,0 +1,1 @@
+export const MAX_MARKER_SCREENSHOTS = 5;

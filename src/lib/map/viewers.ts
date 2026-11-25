@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "@/lib/supabase-admin";
 
 export const FAST_INTERVAL_MS = 1000;
-export const SLOW_INTERVAL_MS = 10_000;
+export const SLOW_INTERVAL_MS = 5_000;
 /** A browser with the map open checks in every 30 s; two missed check-ins and it counts as gone. */
 export const VIEWER_TTL_MS = 60_000;
 

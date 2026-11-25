@@ -140,6 +140,32 @@ describe("marker input", () => {
     expect(parseMarkerInput({ ...ok, visibility: "everyone" })).toBeNull();
     expect(parseMarkerInput({ ...ok, dim: "end" })).toBeNull();
     expect(parseMarkerInput({ ...ok, kind: "route" })).toBeNull();
+    expect(
+      parseMarkerInput({ ...ok, kind: "route", routePoints: [[12, -40]] }),
+    ).toBeNull();
+    expect(
+      parseMarkerInput({
+        ...ok,
+        kind: "route",
+        routePoints: [
+          [12, -40],
+          [12, -40],
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      parseMarkerInput({
+        ...ok,
+        kind: "route",
+        routePoints: [
+          [12, -40],
+          [13, -40],
+        ],
+      })?.kind,
+    ).toBe("route");
+    expect(parseMarkerInput({ ...ok, kind: "route" }, "update")?.kind).toBe(
+      "route",
+    );
     expect(parseMarkerInput(null)).toBeNull();
   });
 });

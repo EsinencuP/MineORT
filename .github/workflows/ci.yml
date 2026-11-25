@@ -77,6 +77,9 @@ jobs:
           done
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/function-privileges.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/mineort-community.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/map-trails.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/map-marker-media.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/map-tile-edges.sql
         env:
           PGHOST: 127.0.0.1
           PGUSER: postgres
@@ -97,3 +100,16 @@ jobs:
           FF_COMMUNITY_NOTIFICATIONS: "true"
           FF_COMMUNITY_SMS: "true"
           FF_COMMUNITY_PROGRESS: "true"
+
+  paper:
+    name: Paper bridge build and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+      - run: bash ./gradlew build
+        working-directory: plugin

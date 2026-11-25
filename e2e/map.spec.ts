@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { MapMarker } from "../src/components/map/render/markers";
+import type { TrailPoint } from "../src/lib/map/trail-geometry";
 
 // The map as a visitor sees it. Needs FF_P1C=true and FF_P1C_ATLAS=true on the server under
 // test; with the flag off the section must not exist at all.
@@ -214,6 +215,217 @@ test.describe("map with the atlas flag on", () => {
       ).toBeVisible();
     });
   }
+
+  test("player trails refresh and draw separated segments", async ({
+    page,
+  }) => {
+    test.skip(process.env.E2E_MAP_FIXTURE !== "1", "uses a member fixture");
+    await page.route("**/api/map/markers?*", (route) =>
+      route.fulfill({
+        json: {
+          markers: [],
+          me: {
+            signedIn: true,
+            canCreate: true,
+            canLabel: false,
+            canModerate: false,
+            inGuild: false,
+          },
+        },
+      }),
+    );
+    await page.addInitScript(() => {
+      const segments = new WeakMap<Path2D, number>();
+      const moveTo = Path2D.prototype.moveTo;
+      Path2D.prototype.moveTo = function (x, y) {
+        segments.set(this, (segments.get(this) ?? 0) + 1);
+        moveTo.call(this, x, y);
+      };
+      const stroke = CanvasRenderingContext2D.prototype.stroke;
+      CanvasRenderingContext2D.prototype.stroke = function (path?: Path2D) {
+        if (path) {
+          const count = segments.get(path);
+          if (count !== undefined)
+            this.canvas.dataset.trailSegments = String(count);
+          stroke.call(this, path);
+        } else {
+          Reflect.apply(stroke, this, []);
+        }
+      };
+    });
+    let segments: TrailPoint[][] = [
+      [
+        [235, 256],
+        [246, 240],
+        [256, 256],
+      ],
+      [
+        [367, 256],
+        [379, 267],
+      ],
+    ];
+    await page.route("**/api/map/trails?*", (route) =>
+      route.fulfill({
+        json: {
+          nickname: "Walker",
+          ownLatestAt: null,
+          trails: segments.map((points) => ({ mine: false, points })),
+        },
+      }),
+    );
+    await page.clock.install();
+    await page.goto("/map");
+    const canvas = page.getByRole("img", { name: /Карта мира/ });
+    await expect(canvas).toHaveAttribute("data-trail-segments", "2");
+
+    segments = [segments[0]];
+    await page.clock.fastForward(15_050);
+    await expect(canvas).toHaveAttribute("data-trail-segments", "1");
+  });
+
+  test("opens marker screenshots and navigates them from the card", async ({
+    page,
+  }) => {
+    test.skip(process.env.E2E_MAP_FIXTURE !== "1", "uses a marker fixture");
+    const marker = {
+      id: "d04f8466-afda-42c3-90df-ddfce632c8fd",
+      kind: "point",
+      dim: "overworld",
+      x: 256,
+      z: 256,
+      name: "Метка со скриншотами",
+      description: "",
+      icon: "pin",
+      color: null,
+      visibility: "public",
+      status: "approved",
+      author: "Player",
+      mine: false,
+      canEdit: false,
+      canDelete: false,
+      createdAt: "2026-11-25T10:00:00.000Z",
+    } satisfies MapMarker;
+    const screenshots = [
+      "688eda42-6647-481f-a5cf-8fd2ba291e3b",
+      "5846c1fc-3498-4214-bebc-cd77af505f38",
+    ];
+    await page.route("**/api/map/markers?*", (route) =>
+      route.fulfill({
+        json: {
+          markers: [marker],
+          me: {
+            signedIn: false,
+            canCreate: false,
+            canLabel: false,
+            canModerate: false,
+            inGuild: false,
+          },
+        },
+      }),
+    );
+    await page.route(`**/api/map/markers/${marker.id}/media`, (route) =>
+      route.fulfill({ json: { screenshots } }),
+    );
+    await page.route(`**/api/map/markers/${marker.id}/media/*`, (route) =>
+      route.fulfill({ path: "public/brand/logo.webp" }),
+    );
+    await page.goto("/map");
+    await page.getByRole("button", { name: /Список меток/ }).click();
+    await page
+      .getByRole("region", { name: "Список меток" })
+      .getByRole("button", { name: new RegExp(marker.name) })
+      .click();
+    const card = page.getByRole("dialog", { name: `Метка: ${marker.name}` });
+    await card.getByRole("button", { name: "Открыть скриншот 1" }).click();
+    const viewer = page.getByRole("dialog", {
+      name: "Просмотр скриншотов метки",
+    });
+    await expect(
+      viewer.getByRole("img", { name: "Скриншот 1 из 2" }),
+    ).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    const second = viewer.getByRole("img", { name: "Скриншот 2 из 2" });
+    await expect(second).toHaveAttribute(
+      "src",
+      new RegExp(screenshots[1] + "$"),
+    );
+    await viewer.getByRole("button", { name: "Закрыть просмотр" }).click();
+    await expect(viewer).toBeHidden();
+    await expect(card).toBeVisible();
+  });
+
+  test("a dragged waypoint updates the route before it is saved", async ({
+    page,
+  }, info) => {
+    test.skip(process.env.E2E_MAP_FIXTURE !== "1", "uses a member fixture");
+    test.skip(
+      info.project.use.hasTouch === true,
+      "covers pointer dragging and double click",
+    );
+    let savedPoints: TrailPoint[] = [];
+    await page.route("**/api/map/markers?*", (route) =>
+      route.fulfill({
+        json: {
+          markers: [],
+          me: {
+            signedIn: true,
+            canCreate: true,
+            canLabel: false,
+            canModerate: false,
+            inGuild: true,
+          },
+        },
+      }),
+    );
+    await page.route("**/api/map/markers", async (route) => {
+      const draft = route.request().postDataJSON();
+      expect(draft).toMatchObject({ kind: "route", visibility: "guild" });
+      savedPoints = draft.routePoints;
+      await route.fulfill({
+        json: {
+          marker: {
+            ...draft,
+            id: "a704ddae-c16e-4345-bcf8-ee3f4b429cc6",
+            geometry: [savedPoints],
+            status: "approved",
+            author: "Player",
+            mine: true,
+            canEdit: true,
+            canDelete: true,
+            createdAt: "2026-11-25T10:00:00.000Z",
+          },
+        },
+      });
+    });
+    await page.goto("/map");
+    const canvas = page.getByRole("img", { name: /Карта мира/ });
+    const box = (await canvas.boundingBox())!;
+    const y = box.height / 2 - 40;
+    const a = { x: box.width / 2 - 60, y };
+    const b = { x: box.width / 2, y };
+    const c = { x: box.width / 2 + 60, y };
+    await page.getByRole("button", { name: "Нарисовать маршрут" }).click();
+    for (const position of [a, b, c]) await canvas.click({ position });
+    const builder = page.getByRole("region", { name: "Построение маршрута" });
+    const length = builder.getByRole("status");
+    const before = await length.textContent();
+    await page.mouse.move(box.x + b.x, box.y + b.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + b.x, box.y + b.y + 72, { steps: 4 });
+    await page.mouse.up();
+    await expect(length).not.toHaveText(before ?? "0");
+    await canvas.dblclick({ position: c });
+    const editor = page.getByRole("dialog", { name: "Новая метка" });
+    const name = "Маршрут гильдии";
+    await editor.getByLabel("Название").fill(name);
+    await editor.getByRole("button", { name: "Гильдия", exact: true }).click();
+    await editor.getByRole("button", { name: "Сохранить" }).click();
+    await expect(
+      page.getByRole("dialog", { name: `Метка: ${name}` }),
+    ).toContainText("Длина");
+    expect(savedPoints).toHaveLength(3);
+    expect(savedPoints[1][1]).toBeGreaterThan(savedPoints[0][1]);
+  });
 
   test("the page shows no coordinates", async ({ page }) => {
     await page.goto("/map");

@@ -9,6 +9,9 @@ import { toolIcon, type AtlasTheme } from "./atlas-theme";
 import { IconButton, Panel, TextButton } from "./atlas-ui";
 import { fmtDistance, PALETTE } from "./drawing";
 import icons from "./icons.json";
+import { MarkerMedia } from "./marker-media";
+import { routeLength } from "@/lib/map/route-geometry";
+import type { TrailPoint } from "@/lib/map/trail-geometry";
 import type { MapMarker } from "./render/markers";
 
 type IconInfo = { id: string; ru: string; en: string };
@@ -349,7 +352,13 @@ export function MarkerCard(props: {
         <div className="min-w-0">
           <div className="break-words">{m.name}</div>
           <div style={{ color: "var(--ink-soft)" }}>
-            {m.kind === "label" ? "Ориентир" : iconName(m.icon)}
+            {m.kind === "label"
+              ? "Ориентир"
+              : m.kind === "path"
+                ? "Путь игрока"
+                : m.kind === "route"
+                  ? "Маршрут"
+                  : iconName(m.icon)}
           </div>
         </div>
       </div>
@@ -365,6 +374,18 @@ export function MarkerCard(props: {
       <div style={{ color: "var(--ink-soft)" }}>
         {m.author} · {date}
       </div>
+      {m.geometry && (
+        <div style={{ color: "var(--ink-soft)" }}>
+          Длина{" "}
+          {fmtDistance(
+            m.geometry.reduce(
+              (length, segment) => length + routeLength(segment),
+              0,
+            ),
+          )}{" "}
+          бл.
+        </div>
+      )}
       {STATUS_NOTE[m.status] && (
         <div style={{ color: "var(--gold)", marginTop: u(g, 3) }}>
           {STATUS_NOTE[m.status]}
@@ -386,6 +407,7 @@ export function MarkerCard(props: {
       >
         {m.description || "— описания нет —"}
       </div>
+      <MarkerMedia key={m.id} id={m.id} canEdit={m.canEdit} />
       <div className="flex-1" />
       <div className="grid grid-cols-2" style={{ gap: u(g, 4) }}>
         <TextButton
@@ -449,8 +471,10 @@ export function MarkerCard(props: {
 
 export type Draft = {
   boundary?: MapMarker["boundary"];
+  geometry?: MapMarker["geometry"];
+  routePoints?: TrailPoint[];
   id: string | null;
-  kind: "point" | "label";
+  kind: MapMarker["kind"];
   dim: "overworld" | "nether";
   x: number;
   z: number;
@@ -588,7 +612,7 @@ export function MarkerEditor(props: {
           Цвет иконки: {d.color ? "свой" : "исходный"}
         </TextButton>
 
-        {d.kind === "point" && (
+        {d.kind !== "label" && (
           <>
             <div style={{ color: "var(--ink-soft)", marginTop: u(g, 4) }}>
               Кто видит
@@ -623,17 +647,19 @@ export function MarkerEditor(props: {
             )}
           </>
         )}
-        {props.canLabel && !d.id && (
-          <TextButton
-            theme={theme}
-            aria-pressed={d.kind === "label"}
-            onClick={() =>
-              set({ kind: d.kind === "label" ? "point" : "label" })
-            }
-          >
-            Ориентир (подпись места): {d.kind === "label" ? "да" : "нет"}
-          </TextButton>
-        )}
+        {props.canLabel &&
+          !d.id &&
+          (d.kind === "point" || d.kind === "label") && (
+            <TextButton
+              theme={theme}
+              aria-pressed={d.kind === "label"}
+              onClick={() =>
+                set({ kind: d.kind === "label" ? "point" : "label" })
+              }
+            >
+              Ориентир (подпись места): {d.kind === "label" ? "да" : "нет"}
+            </TextButton>
+          )}
 
         <label
           style={{ color: "var(--ink-soft)", marginTop: u(g, 4) }}

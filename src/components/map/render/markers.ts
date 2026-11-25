@@ -4,12 +4,15 @@
 
 import { worldToScreen, type Camera, type Viewport } from "../camera";
 import type { Vertex } from "@/lib/map/polygon";
+import type { MarkerKind } from "@/lib/map/marker-rules";
+import type { TrailPoint } from "@/lib/map/trail-geometry";
 
 export type MapMarker = {
   boundary?: Vertex[] | null;
+  geometry?: TrailPoint[][];
   bookmarked?: boolean;
   id: string;
-  kind: "point" | "label";
+  kind: MarkerKind;
   dim: "overworld" | "nether";
   x: number;
   z: number;
@@ -59,6 +62,32 @@ export function drawBoundary(
       const [x, y] = points[0];
       ctx.strokeRect(x - 7, y - 7, 14, 14);
     }
+  }
+  ctx.restore();
+}
+
+export function drawMarkerPath(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera,
+  view: Viewport,
+  segments: TrailPoint[][],
+  color: string,
+  handles = false,
+) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = handles ? 3 : 2;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const segment of segments) {
+    if (!segment.length) continue;
+    const points = segment.map(([x, z]) => worldToScreen(cam, view, x, z));
+    ctx.beginPath();
+    ctx.moveTo(...points[0]);
+    for (const point of points.slice(1)) ctx.lineTo(...point);
+    ctx.stroke();
+    if (handles) for (const [x, y] of points) ctx.fillRect(x - 4, y - 4, 8, 8);
   }
   ctx.restore();
 }

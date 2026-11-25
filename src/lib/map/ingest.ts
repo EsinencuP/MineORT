@@ -46,7 +46,7 @@ export function parseChunkBatch(raw: unknown[]): {
       !Number.isInteger(c.cz) ||
       Math.abs(c.cx as number) > BORDER_CHUNKS ||
       Math.abs(c.cz as number) > BORDER_CHUNKS ||
-      !Number.isInteger(c.version) ||
+      !Number.isSafeInteger(c.version) ||
       (c.version as number) < 0 ||
       typeof c.data !== "string"
     ) {

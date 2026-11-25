@@ -16,11 +16,6 @@ export type Position = {
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DIMS: Record<string, Dim> = {
-  overworld: "overworld",
-  nether: "nether",
-};
-
 const finite = (v: unknown): v is number =>
   typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= LIMIT;
 
@@ -38,14 +33,19 @@ export function parsePositions(raw: unknown): Position[] {
     if (typeof p !== "object" || p === null) continue;
     const { uuid, dim, x, y, z, yaw } = p as Record<string, unknown>;
     if (typeof uuid !== "string" || !UUID.test(uuid)) continue;
-    const d = typeof dim === "string" ? DIMS[dim] : undefined;
-    if (!d || !finite(x) || !finite(y) || !finite(z)) continue;
+    if (
+      (dim !== "overworld" && dim !== "nether") ||
+      !finite(x) ||
+      !finite(y) ||
+      !finite(z)
+    )
+      continue;
     const id = uuid.toLowerCase();
     if (seen.has(id)) continue;
     seen.add(id);
     out.push({
       uuid: id,
-      dim: d,
+      dim,
       x: Math.round(x * 10) / 10,
       y: Math.round(y),
       z: Math.round(z * 10) / 10,

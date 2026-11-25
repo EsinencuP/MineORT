@@ -14,6 +14,7 @@ import {
 import { upsertTelegramUser } from "@/lib/auth/store";
 import { canonicalRequest, hmacHex } from "@/lib/bridge/auth";
 import { createBridgeServer, issueBridgeKey } from "@/lib/bridge/keys";
+import { isEnabled } from "@/lib/flags";
 import { createGuild } from "@/lib/guilds/store";
 import { db } from "@/lib/supabase-admin";
 
@@ -32,6 +33,7 @@ vi.mock("@/lib/map/realtime", async (original) => {
 });
 
 import { POST as positionsRoute } from "@/app/api/bridge/v1/map/positions/route";
+import { POST as markerRoute } from "@/app/api/bridge/v1/community/marker/route";
 import { signRealtimeToken } from "@/lib/map/realtime";
 import { markLiveSession } from "@/lib/map/viewers";
 import { loadViewer } from "@/lib/map/viewer";
@@ -48,14 +50,14 @@ let key = { keyId: "", secret: "" };
 const users: string[] = [];
 let guildId = "";
 
-function request(body: unknown, opts: { badSig?: boolean } = {}) {
+function request(body: unknown, opts: { badSig?: boolean } = {}, path = PATH) {
   const raw = JSON.stringify(body);
   const ts = String(Math.floor(Date.now() / 1000));
   const nonce = randomBytes(16).toString("hex");
   const sig = opts.badSig
     ? "0".repeat(64)
-    : hmacHex(key.secret, canonicalRequest("POST", PATH, ts, nonce, raw));
-  return new NextRequest(`http://localhost${PATH}`, {
+    : hmacHex(key.secret, canonicalRequest("POST", path, ts, nonce, raw));
+  return new NextRequest(`http://localhost${path}`, {
     method: "POST",
     headers: {
       "x-mineort-key-id": key.keyId,
@@ -237,6 +239,62 @@ describe.skipIf(!enabled)("live positions (staging)", () => {
     expect(sent.messages).toHaveLength(0);
   });
 
+  it.skipIf(!isEnabled("ff_p1c_atlas"))(
+    "accepts one private game marker at exact block coordinates",
+    async () => {
+      const endpoint = "/api/bridge/v1/community/marker";
+      const eventId = randomUUID();
+      let markerId: string | undefined;
+      const input = {
+        event_id: eventId,
+        player_uuid: owner.mcUuid,
+        occurred_at: new Date().toISOString(),
+        dim: "nether",
+        x: -17,
+        y: 74,
+        z: 28,
+        name: "Paper marker fixture",
+      };
+      try {
+        const first = await markerRoute(request(input, {}, endpoint));
+        expect(first.status).toBe(200);
+        const result = await first.json();
+        markerId = result.marker_id as string;
+        expect(new URL(result.url).searchParams.get("m")).toBe(markerId);
+        const again = await markerRoute(request(input, {}, endpoint));
+        expect((await again.json()).marker_id).toBe(markerId);
+        const { data } = await db()
+          .from("map_markers")
+          .select("author_id, dim, x, y, z, visibility")
+          .eq("id", markerId)
+          .single();
+        expect(data).toEqual({
+          author_id: owner.userId,
+          dim: "nether",
+          x: -17,
+          y: 74,
+          z: 28,
+          visibility: "private",
+        });
+        expect(
+          (
+            await markerRoute(
+              request({ ...input, player_uuid: randomUUID() }, {}, endpoint),
+            )
+          ).status,
+        ).toBe(404);
+      } finally {
+        await db()
+          .from("server_events")
+          .delete()
+          .eq("server_id", serverId)
+          .eq("event_id", eventId);
+        if (markerId)
+          await db().from("map_markers").delete().eq("id", markerId);
+      }
+    },
+  );
+
   it("sends an empty snapshot to clear stale pins", async () => {
     const r = await send({ players: [] });
     expect(r.status).toBe(200);
@@ -281,7 +339,7 @@ describe.skipIf(!enabled)("live positions (staging)", () => {
     expect(v.staff).toBe(false);
   });
 
-  it("stops sending guild coordinates to an already subscribed session after removal", async () => {
+  it("keeps a session's own position when guild-only sharing loses its guild", async () => {
     await db()
       .from("privacy_settings")
       .update({ map_visibility: "guild" })
@@ -297,7 +355,8 @@ describe.skipIf(!enabled)("live positions (staging)", () => {
     expect((await loadViewer(asPlayer(owner.userId))).guildId).toBeNull();
     // the position follows the new situation at once
     await send({ players: [dot(owner.mcUuid)] });
-    expect(namesIn(sessionTopic(ownerSession))).toEqual([]);
+    expect(namesIn(sessionTopic(ownerSession))).toEqual([owner.nickname]);
+    expect(namesIn(sessionTopic(lonerSession))).toEqual([]);
     expect(namesIn(sessionTopic(adminSession))).toEqual([owner.nickname]);
     sent.messages.length = 0;
     await db()

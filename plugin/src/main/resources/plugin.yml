@@ -1,0 +1,13 @@
+name: MineOrtBridge
+version: "${version}"
+main: org.mineort.bridge.MineOrtBridgePlugin
+api-version: "26.3"
+description: MineOrt Atlas position and marker bridge
+commands:
+  marker:
+    description: Создаёт приватную метку на сайте
+    usage: /marker new [название]
+permissions:
+  mineort.marker.create:
+    description: Разрешает создавать метки через /marker new
+    default: true

@@ -62,6 +62,7 @@ export async function loadTile(
   dim: Dim,
   rx: number,
   rz: number,
+  expectedVersion?: number,
 ): Promise<Tile | null> {
   let row = await readRow(serverId, dim, rx, rz);
   if (!row) return null;
@@ -70,7 +71,9 @@ export async function loadTile(
   const overdue =
     row.out_dirty &&
     Date.now() - Date.parse(row.out_dirty_at) > REBUILD_AFTER_MS;
-  if (!row.out_has_tile || overdue) {
+  const staleForViewer =
+    row.out_dirty && expectedVersion === Number(row.out_version) + 1;
+  if (!row.out_has_tile || overdue || staleForViewer) {
     await rebuildOnce(serverId, dim, rx, rz);
     row = await readRow(serverId, dim, rx, rz);
   }
@@ -93,7 +96,7 @@ export async function listRegions(
   for (;;) {
     let query = db()
       .from("map_regions")
-      .select("rx, rz, built_version")
+      .select("rx, rz, built_version, dirty")
       .eq("server_id", serverId)
       .eq("dim", dim)
       .gte("rx", bounds.minX)
@@ -113,7 +116,7 @@ export async function listRegions(
       ...data.map((row) => ({
         rx: row.rx,
         rz: row.rz,
-        version: Number(row.built_version),
+        version: Number(row.built_version) + (row.dirty ? 1 : 0),
       })),
     );
     if (data.length < pageSize) return result;

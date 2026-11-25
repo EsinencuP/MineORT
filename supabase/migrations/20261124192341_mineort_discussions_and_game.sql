@@ -189,17 +189,6 @@ begin
   end loop;
 end $$;
 
-create function public.community_player(p_uuid uuid)
-returns table (user_id uuid, nickname text) language sql stable set search_path = '' as $$
-  select mi.user_id, mi.nickname from public.minecraft_identities mi
-    join public.users u on u.id = mi.user_id
-    join public.access_memberships m on m.user_id = mi.user_id and m.status = 'approved'
-  where mi.mc_uuid = p_uuid and mi.binding_status = 'confirmed'
-    and mi.game_identity = 'confirmed' and u.account_status = 'active'
-    and (select count(*) from public.minecraft_identities other where other.mc_uuid = p_uuid
-      and other.binding_status = 'confirmed' and other.game_identity = 'confirmed') = 1
-$$;
-
 create function public.community_thread_visible(uid uuid, p_type text, tid uuid)
 returns boolean language sql stable set search_path = '' as $$
   select coalesce(case p_type
@@ -478,70 +467,17 @@ returns void language sql set search_path = '' as $$
     and d.lease_id=p_lease and d.channel='minecraft' and d.delivered_at is null and d.stopped_at is null
 $$;
 
-create function public.create_game_marker(p_server uuid,p_event uuid,p_user uuid,p_time timestamptz,
-  p_dim text,p_x integer,p_y integer,p_z integer,p_name text)
-returns uuid language plpgsql set search_path = '' as $$
-declare mid uuid;
-begin
-  perform pg_advisory_xact_lock(hashtextextended(p_server::text || p_event::text, 2));
-  select (payload->>'marker_id')::uuid into mid from public.server_events
-    where server_id=p_server and event_id=p_event and type='marker.create_requested';
-  if found then return mid; end if;
-  if not public.hit_rate_limit('game-marker:'||p_user::text,3600,10)
-    or (select count(*) from public.map_markers where author_id=p_user and deleted_at is null)>=100
-    then raise exception 'marker_rate_limited'; end if;
-  insert into public.map_markers(author_id,kind,dim,x,y,z,name,icon,visibility,moderation_status)
-    values(p_user,'point',p_dim,p_x,p_y,p_z,p_name,'pin','private','approved') returning id into mid;
-  insert into public.server_events(server_id,event_id,type,payload,occurred_at)
-    values(p_server,p_event,'marker.create_requested',jsonb_build_object('marker_id',mid),p_time);
-  return mid;
-end $$;
-
-create table public.map_live_watches (
-  session_id uuid primary key references public.user_sessions(id) on delete cascade,
-  seen_at timestamptz not null default now()
-);
-create index map_live_watches_seen_idx on public.map_live_watches(seen_at);
-alter table public.map_live_watches enable row level security;
-revoke all on public.map_live_watches from public, anon, authenticated;
-grant select, insert, update, delete on public.map_live_watches to service_role;
-
-drop policy "map positions are read by claim" on realtime.messages;
-create policy "map positions are scoped to the site session"
-  on realtime.messages for select to authenticated
-  using (extension = 'broadcast' and auth.jwt()->>'mo_map' = '1'
-    and realtime.topic() = 'map:pos:session:' || (auth.jwt()->>'mo_map_session'));
-
-create function public.map_live_audience()
-returns table(session_id uuid, guild_id uuid, staff boolean)
-language sql stable set search_path = '' as $$
-  select w.session_id, g.id,
-    (u.site_role = 'admin' and s.is_admin_session and t.confirmed_at is not null)
-  from public.map_live_watches w
-  join public.user_sessions s on s.id=w.session_id and s.revoked_at is null and s.expires_at > now()
-  join public.users u on u.id=s.user_id and u.account_status='active'
-  left join public.admin_totp t on t.user_id=u.id
-  left join public.guild_members gm on gm.user_id=u.id and gm.status='active'
-  left join public.guilds g on g.id=gm.guild_id and g.status='active'
-  where w.seen_at > now()-interval '60 seconds' and (
-    (u.site_role='admin' and s.is_admin_session and t.confirmed_at is not null)
-    or exists (select 1 from public.access_memberships m where m.user_id=u.id and m.status='approved')
-  )
-  order by w.seen_at desc limit 200
-$$;
-
 do $$
 declare f text;
 begin
-  foreach f in array array['community_player(uuid)','community_thread_visible(uuid,text,uuid)',
+  foreach f in array array['community_thread_visible(uuid,text,uuid)',
     'media_soft_delete_everywhere(uuid)','media_release_unused(uuid[])','media_assert_live_attachment()',
     'community_add_comment(uuid,text,uuid,text,uuid,text[],boolean)','community_followed_posts(uuid)',
     'community_react(uuid,uuid,text)','sms_allowed(uuid,uuid)','sms_send(uuid,text,text,uuid,text,integer,integer,integer,uuid)',
     'game_record_stats(uuid,uuid,uuid,timestamptz,jsonb,jsonb)','game_award(uuid,text)','game_check_cartographer(uuid)',
     'raid_contribution(uuid,uuid,uuid,uuid,integer,boolean)','game_totals(uuid)',
     'create_raid_event(uuid,text,text,timestamptz,integer,text,text,text,integer,text,uuid,uuid,uuid)',
-    'game_season_ranks(uuid)','claim_game_deliveries(uuid)','finish_game_delivery(uuid,uuid,uuid,boolean)',
-    'create_game_marker(uuid,uuid,uuid,timestamptz,text,integer,integer,integer,text)','map_live_audience()'] loop
+    'game_season_ranks(uuid)','claim_game_deliveries(uuid)','finish_game_delivery(uuid,uuid,uuid,boolean)'] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
     execute format('grant execute on function public.%s to service_role', f);
   end loop;
