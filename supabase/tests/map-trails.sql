@@ -13,6 +13,7 @@ declare
   member_rank uuid;
   sample jsonb;
   history jsonb;
+  purged_count bigint;
   baseline timestamptz := now();
 begin
   insert into public.users(id,display_name,site_role) values
@@ -102,7 +103,8 @@ begin
     or public.map_read_recent_own_path(walker,'nether') is distinct from '[]'::jsonb then
     raise exception 'saved paths must include only the player''s points from the last five minutes';
   end if;
-  if public.map_purge_trails() <> 1 or
+  purged_count := public.map_purge_trails();
+  if purged_count <> 1 or
     (select count(*) from public.map_trail_points where server_id = game_server) <> 6 then
     raise exception 'trail: retention cleanup did not remove only expired points';
   end if;
