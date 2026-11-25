@@ -24,8 +24,17 @@ public final class MineOrtBridgePlugin extends JavaPlugin {
             return;
         }
         BridgeHttp bridge = new BridgeHttp(site, keyId, secret, getPluginMeta().getVersion());
-        Objects.requireNonNull(getCommand("marker")).setExecutor(new MarkerCommand(this, bridge));
-        new PositionReporter(this, bridge).start();
+        new HeartbeatReporter(this, bridge).start();
+        var marker = Objects.requireNonNull(getCommand("marker"));
+        if (getConfig().getBoolean("map-enabled", true)) {
+            marker.setExecutor(new MarkerCommand(this, bridge));
+            new PositionReporter(this, bridge).start();
+        } else {
+            marker.setExecutor((sender, command, label, args) -> {
+                sender.sendMessage("Карта отключена в настройках сервера.");
+                return true;
+            });
+        }
     }
 
     private static boolean validSite(URI site) {

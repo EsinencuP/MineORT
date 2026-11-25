@@ -1,2 +1,3 @@
 # Base URL of the MineOrt site. HTTPS is required outside localhost.
 site-url: ""
+map-enabled: true
