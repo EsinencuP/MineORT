@@ -1,8 +1,4 @@
 -- MineOrt V: event audience, reservations and durable delivery.
-alter table public.map_markers add column boundary jsonb
-  check (boundary is null or (kind = 'label' and jsonb_typeof(boundary) = 'array'
-    and jsonb_array_length(boundary) between 3 and 64));
-
 alter table public.events
   add column visibility text not null default 'signed_in'
     check (visibility in ('public', 'signed_in', 'guild', 'private')),

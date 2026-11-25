@@ -55,6 +55,10 @@ export function drawBoundary(
   if (handles) {
     ctx.fillStyle = color;
     for (const [x, y] of points) ctx.fillRect(x - 4, y - 4, 8, 8);
+    if (points.length >= 3) {
+      const [x, y] = points[0];
+      ctx.strokeRect(x - 7, y - 7, 14, 14);
+    }
   }
   ctx.restore();
 }

@@ -90,6 +90,7 @@ const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 16;
 const REFRESH_MS = 30_000;
 const MAX_TILES = 48;
+const AREA_CLOSE_RADIUS = 8;
 const THEME_KEY = "mineort.map.theme";
 const PREFS_KEY = "mineort.map.prefs";
 const HIDDEN_KEY = "mineort.map.hiddenMarkers";
@@ -415,7 +416,10 @@ export function MapView({
         left > size.current.width ||
         top > size.current.height;
     }
-    const boundary = shown.find((m) => m.id === activeArea)?.boundary;
+    const boundary =
+      (d0?.dim === dimRef.current ? d0.boundary : null) ??
+      shown.find((m) => m.id === activeArea)?.boundary ??
+      shown.find((m) => m.id === sel)?.boundary;
     if (boundary && !areaEditRef.current)
       drawBoundary(ctx, c, size.current, boundary, t.accent, true);
     if (areaEditRef.current)
@@ -962,6 +966,7 @@ export function MapView({
   };
 
   const startArea = () => {
+    setTool("none");
     setAreaHistory([]);
     changeArea(draftRef.current?.boundary ?? [], false);
     areaEditRef.current = true;
@@ -1164,15 +1169,33 @@ export function MapView({
       if (button !== 0) return;
       const [worldX, worldZ] = screenToWorld(cam.current, size.current, mx, my);
       const point: Vertex = [Math.round(worldX), Math.round(worldZ)];
+      const vertices = areaPointsRef.current;
       if (movingVertex !== null) {
-        changeArea(
-          areaPointsRef.current.map((v, i) => (i === movingVertex ? point : v)),
-        );
+        changeArea(vertices.map((v, i) => (i === movingVertex ? point : v)));
         setMovingVertex(null);
-      } else if (areaPointsRef.current.length < MAX_VERTICES) {
-        changeArea([...areaPointsRef.current, point]);
-      } else {
+        return;
+      }
+      if (vertices.length >= 3) {
+        const first = vertices[0];
+        const [firstX, firstY] = worldToScreen(
+          cam.current,
+          size.current,
+          ...first,
+        );
+        if (
+          (point[0] === first[0] && point[1] === first[1]) ||
+          Math.hypot(mx - firstX, my - firstY) <= AREA_CLOSE_RADIUS
+        ) {
+          finishArea();
+          return;
+        }
+      }
+      if (vertices.some(([x, z]) => x === point[0] && z === point[1])) {
+        setAreaError("Эта вершина уже есть. Выберите другое место.");
+      } else if (vertices.length >= MAX_VERTICES) {
         setAreaError(`Максимум вершин: ${MAX_VERTICES}.`);
+      } else {
+        changeArea([...vertices, point]);
       }
       return;
     }
@@ -1257,6 +1280,7 @@ export function MapView({
     }
     const prev = pointers.current.get(e.pointerId);
     if (!prev) {
+      if (areaEdit) return;
       const hit =
         toolRef.current === "none"
           ? markerAt(
@@ -1405,6 +1429,7 @@ export function MapView({
       return;
     if (e.key === "Escape") {
       if (overlay !== "none") setOverlay("none");
+      else if (areaEdit) closeArea();
       else if (panel !== "none") closePanel();
       else if (tool !== "none") setTool("none");
       return;
@@ -1429,8 +1454,10 @@ export function MapView({
     } else if (e.key === "+" || e.key === "=") zoomBy(1.5);
     else if (e.key === "-") zoomBy(1 / 1.5);
     else if (e.code === "KeyJ") setListOpen(!listOpen);
-    else if (e.code === "KeyR") setTool(tool === "ruler" ? "none" : "ruler");
-    else if (e.code === "KeyG") setTool(tool === "draw" ? "none" : "draw");
+    else if (e.code === "KeyR" && !areaEdit)
+      setTool(tool === "ruler" ? "none" : "ruler");
+    else if (e.code === "KeyG" && !areaEdit)
+      setTool(tool === "draw" ? "none" : "draw");
     else if (e.code === "KeyH")
       savePrefs({ ...prefs, drawings: !prefs.drawings });
     else if (e.code === "KeyZ" && (e.ctrlKey || e.metaKey)) doUndo();
@@ -1574,7 +1601,7 @@ export function MapView({
         role="img"
         aria-label="Карта мира. Перетаскивайте, чтобы двигать, колесо мыши или кнопки плюс и минус, чтобы менять масштаб."
         className="absolute inset-0 size-full"
-        style={{ cursor: tool === "none" ? "grab" : "crosshair" }}
+        style={{ cursor: tool === "none" && !areaEdit ? "grab" : "crosshair" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -1602,7 +1629,10 @@ export function MapView({
             icon={b.icon}
             label={b.label}
             pressed={b.pressed}
-            disabled={b.action === "place" && panel === "edit"}
+            disabled={
+              (b.action === "place" && panel === "edit") ||
+              (areaEdit && (b.action === "ruler" || b.action === "draw"))
+            }
             src={b.src}
             onClick={() => run(b.action)}
           />
@@ -2252,7 +2282,9 @@ export function MapView({
           <p>
             {movingVertex !== null
               ? "Нажмите на новое место вершины."
-              : "Ставьте вершины на карте по порядку."}
+              : areaPoints.length < 3
+                ? "Поставьте на карте минимум три вершины по порядку."
+                : "Нажмите на первую вершину или кнопку «Замкнуть контур»."}
           </p>
           {areaError && <p role="alert">{areaError}</p>}
           {areaPoints.length > 0 && (

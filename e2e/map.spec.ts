@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { MapMarker } from "../src/components/map/render/markers";
 
 // The map as a visitor sees it. Needs FF_P1C=true and FF_P1C_ATLAS=true on the server under
 // test; with the flag off the section must not exist at all.
@@ -127,6 +128,92 @@ test.describe("map with the atlas flag on", () => {
     ).toBeVisible();
     await expect(place).toHaveAttribute("aria-pressed", "false");
   });
+
+  for (const finish of ["first vertex", "button"] as const) {
+    test(`an area marker can be closed using the ${finish} and reloaded`, async ({
+      page,
+    }, info) => {
+      test.skip(process.env.E2E_MAP_FIXTURE !== "1", "uses a staff fixture");
+      let saved: MapMarker | undefined;
+      await page.route("**/api/map/markers?*", (route) =>
+        route.fulfill({
+          json: {
+            markers: saved ? [saved] : [],
+            me: {
+              signedIn: true,
+              canCreate: true,
+              canLabel: true,
+              canModerate: true,
+              inGuild: false,
+            },
+          },
+        }),
+      );
+      await page.route("**/api/map/markers", async (route) => {
+        saved = {
+          ...route.request().postDataJSON(),
+          id: "18cb7548-4f73-4411-b791-99d9f26240dc",
+          status: "approved",
+          author: "Staff",
+          mine: true,
+          canEdit: true,
+          canDelete: true,
+          createdAt: new Date().toISOString(),
+        };
+        await route.fulfill({ json: { marker: saved } });
+      });
+      await page.goto("/map");
+      const canvas = page.getByRole("img", { name: /Карта мира/ });
+      const box = (await canvas.boundingBox())!;
+      const start = { x: box.width / 2 - 45, y: box.height / 2 - 65 };
+      const addVertex = (position: { x: number; y: number }) =>
+        info.project.use.hasTouch
+          ? canvas.tap({ position })
+          : canvas.click({ position });
+
+      await page.getByRole("button", { name: "Поставить метку" }).click();
+      await addVertex(start);
+      const editor = page.getByRole("dialog", { name: "Новая метка" });
+      const name = "Область на карте";
+      await editor.getByLabel("Название").fill(name);
+      await editor.getByRole("button", { name: /Ориентир/ }).click();
+      await editor.getByRole("button", { name: "Обвести область" }).click();
+
+      await addVertex(start);
+      await addVertex({ x: start.x + 90, y: start.y });
+      await addVertex({ x: start.x + 45, y: start.y + 70 });
+      if (finish === "first vertex") await addVertex(start);
+      else await page.getByRole("button", { name: "Замкнуть контур" }).click();
+
+      await expect(
+        page.getByRole("region", { name: "Контур области" }),
+      ).toBeHidden();
+      await expect(
+        editor.getByRole("button", { name: "Изменить область" }),
+      ).toBeVisible();
+      await editor.getByRole("button", { name: "Сохранить" }).click();
+      await expect(
+        page.getByRole("dialog", { name: `Метка: ${name}` }),
+      ).toBeVisible();
+      expect(saved).toMatchObject({ kind: "label", name });
+      expect(saved?.boundary).toHaveLength(3);
+      expect(new Set(saved?.boundary?.map(String)).size).toBe(3);
+
+      await page.reload();
+      await page.getByRole("button", { name: /Список меток/ }).click();
+      await page
+        .getByRole("region", { name: "Список меток" })
+        .getByRole("button", { name: new RegExp(name) })
+        .click();
+      const card = page.getByRole("dialog", { name: `Метка: ${name}` });
+      await card.getByRole("button", { name: "Настроить" }).click();
+      await expect(
+        page
+          .getByRole("dialog", { name: "Настройка метки" })
+          .getByRole("button", { name: "Изменить область" }),
+      ).toBeVisible();
+    });
+  }
 
   test("the page shows no coordinates", async ({ page }) => {
     await page.goto("/map");
