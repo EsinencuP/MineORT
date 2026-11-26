@@ -4,13 +4,19 @@
 // https://github.com/erkinpaw/atlasmap, MapScreen.java and MapView.java). Every size is in the mod's
 // GUI pixels; `g` is one GUI pixel on screen. Copyright (c) 2026 erkinpaw for the ported design.
 
-import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./atlas.css";
 import { IconButton, Panel, TB } from "./atlas-ui";
 import {
+  DIM_NAMES,
+  DimsMenu,
+  DRAW_BAR_W,
+  DrawBar,
+  SettingsDialog,
+  StatusBar,
+} from "./panels";
+import {
   DEFAULT_THEME,
-  THEMES,
   themeById,
   themeVars,
   toolIcon,
@@ -29,7 +35,6 @@ import {
 import {
   dashedLine,
   distanceTo,
-  DRAW_TOOLS,
   drawLabel,
   drawStroke,
   fmtDistance,
@@ -104,10 +109,6 @@ const NO_ONE: Me = {
   canModerate: false,
   inGuild: false,
 };
-const DIM_NAMES: Record<Dim, string> = {
-  overworld: "Верхний мир",
-  nether: "Незер",
-};
 const NICE = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
 
 /** Minecraft's GUI scale for this window: 3 on a large screen, 2 on a usual one, 1.5 on a phone. */
@@ -115,6 +116,30 @@ const guiScale = (w: number, h: number) =>
   w >= 1600 && h >= 900 ? 3 : w >= 640 ? 2 : 1.5;
 
 const px = (n: number) => `${n}px`;
+
+/** An invisible button over an area label, so the label can be focused and clicked. */
+function AreaTarget({
+  id,
+  register,
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  id: string;
+  register: (id: string, node: HTMLButtonElement | null) => void;
+}) {
+  const ref = useCallback(
+    (node: HTMLButtonElement | null) => register(id, node),
+    [id, register],
+  );
+  return (
+    <button
+      ref={ref}
+      type="button"
+      className="atlas-label-target absolute"
+      hidden
+      {...rest}
+    />
+  );
+}
 
 export function MapView({
   backHref = "/",
@@ -136,6 +161,14 @@ export function MapView({
   const indexRequest = useRef<AbortController | null>(null);
   const anchor = useRef<{ dim: Dim; rx: number; rz: number } | null>(null);
   const bg = useRef<HTMLImageElement | null>(null);
+  // read once per theme or resize, not on every frame: getComputedStyle forces a style pass
+  const fontFamily = useRef("sans-serif");
+  const bgPattern = useRef<{
+    img: HTMLImageElement;
+    pattern: CanvasPattern;
+  } | null>(null);
+  // the staff cursor readout is written straight into the DOM, so moving the mouse re-renders nothing
+  const cursorText = useRef<HTMLSpanElement>(null);
   const arrow = useRef<HTMLImageElement | null>(null);
   const queued = useRef(false);
   const fetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -165,7 +198,6 @@ export function MapView({
     markers: true,
   });
   const [scaleInfo, setScaleInfo] = useState({ px: 40, blocks: 20 });
-  const [cursor, setCursor] = useState<[number, number] | null>(null);
   const [rulerText, setRulerText] = useState<string[]>([]);
 
   const dimRef = useRef<Dim>("overworld");
@@ -201,6 +233,7 @@ export function MapView({
   const focusedArea = useRef<string | null>(null);
   const touchedArea = useRef<string | null>(null);
   const labelTargets = useRef(new Map<string, HTMLButtonElement>());
+
   const [listOpen, setListOpen] = useState(false);
   const [sort, setSort] = useState<SortId>("name");
   const [query, setQuery] = useState("");
@@ -246,7 +279,12 @@ export function MapView({
 
     // MapView.drawBackground: the theme's sheet, one texel per GUI pixel, moving with the map
     if (bg.current?.complete && bg.current.naturalWidth) {
-      const pattern = ctx.createPattern(bg.current, "repeat")!;
+      if (bgPattern.current?.img !== bg.current)
+        bgPattern.current = {
+          img: bg.current,
+          pattern: ctx.createPattern(bg.current, "repeat")!,
+        };
+      const pattern = bgPattern.current.pattern;
       pattern.setTransform(
         new DOMMatrix().translate(-c.x * c.scale, -c.z * c.scale).scale(gp),
       );
@@ -338,7 +376,7 @@ export function MapView({
       );
     }
 
-    ctx.font = `${10.5 * gp}px ${getComputedStyle(el).fontFamily}`;
+    ctx.font = `${10.5 * gp}px ${fontFamily.current}`;
     const colors = { cream: t.cream, ink: t.ink };
 
     // MapScreen.drawRuler
@@ -443,7 +481,7 @@ export function MapView({
     }
     drawMarkers(ctx, c, size.current, shown, {
       g: gp,
-      family: getComputedStyle(el).fontFamily,
+      family: fontFamily.current,
       selected: d0 ? (d0.id ?? "draft") : sel,
       hovered: hoveredRef.current,
       onLabelBounds: (id, bounds) => {
@@ -755,6 +793,7 @@ export function MapView({
     const cv = canvas.current;
     if (!el || !cv) return;
     const resize = () => {
+      fontFamily.current = getComputedStyle(cv).fontFamily;
       const dpr = window.devicePixelRatio || 1;
       const { width: w, height: h } = el.getBoundingClientRect();
       const nextG = guiScale(w, h);
@@ -840,6 +879,8 @@ export function MapView({
   // the chosen design's sheet is the ground of the map, its arrow marks the players
   useEffect(() => {
     themeRef.current = theme;
+    if (canvas.current)
+      fontFamily.current = getComputedStyle(canvas.current).fontFamily;
     const sheet = new Image();
     sheet.onload = () => {
       bg.current = sheet;
@@ -1211,6 +1252,17 @@ export function MapView({
     }
   };
 
+  /** The invisible button over an area label registers itself here for the painter to place. */
+  const registerLabel = useCallback(
+    (id: string, node: HTMLButtonElement | null) => {
+      if (node) {
+        labelTargets.current.set(id, node);
+        requestPaintRef.current();
+      } else labelTargets.current.delete(id);
+    },
+    [],
+  );
+
   const visibleMarkers = () =>
     markersRef.current.filter(
       (m) =>
@@ -1330,9 +1382,9 @@ export function MapView({
   const onPointerMove = (e: React.PointerEvent) => {
     const [mx, my] = local(e);
     mouse.current = [mx, my];
-    if (feed.current?.staff) {
+    if (feed.current?.staff && cursorText.current) {
       const [wx, wz] = screenToWorld(cam.current, size.current, mx, my);
-      setCursor([Math.floor(wx), Math.floor(wz)]);
+      cursorText.current.textContent = `X ${Math.floor(wx)}   Z ${Math.floor(wz)}`;
     }
     const prev = pointers.current.get(e.pointerId);
     if (!prev) {
@@ -1526,6 +1578,21 @@ export function MapView({
 
   // ------------------------------------------------------------------ layout
 
+  // the list re-sorts only when its inputs change, not on every pan or hover
+  const dimMarkers = useMemo(
+    () => markers.filter((m) => m.dim === dim),
+    [markers, dim],
+  );
+  // distances are rounded to the list's own step so a pan does not re-sort it constantly
+  const listFrom = useMemo<[number, number]>(
+    () => [Math.round(viewMid[0] / 32) * 32, Math.round(viewMid[1] / 32) * 32],
+    [viewMid],
+  );
+  const listed = useMemo(
+    () => (listOpen ? sortMarkers(dimMarkers, sort, query, listFrom) : []),
+    [listOpen, dimMarkers, sort, query, listFrom],
+  );
+
   const gw = width / g; // the window width in GUI pixels
   const listW = Math.max(130, Math.min(180, gw / 4));
   const panelW = Math.max(150, Math.min(190, gw / 3));
@@ -1637,11 +1704,6 @@ export function MapView({
   const globeAt = visibleToolbar.findIndex((b) => b.icon === "globe");
 
   const selectedMarker = markers.find((x) => x.id === selectedId) ?? null;
-  const drawBarW = 20 * 11 + 15;
-  const settingsW = Math.min(gw - 16, 430);
-  const twoCols = settingsW >= 380;
-  const colW = twoCols ? (settingsW - 30) / 2 : settingsW - 20;
-  const tileW = (colW - 4) / 2;
 
   return (
     <div
@@ -1667,7 +1729,7 @@ export function MapView({
           onPointerCancel={onPointerUp}
           onPointerLeave={() => {
             mouse.current = null;
-            setCursor(null);
+            if (cursorText.current) cursorText.current.textContent = "";
             if (toolRef.current !== "none") requestPaint();
           }}
           onContextMenu={(e) => e.preventDefault()}
@@ -1685,18 +1747,11 @@ export function MapView({
                 (m.id === selectedId || (prefs.markers && !hidden.has(m.id))),
             )
             .map((m) => (
-              <button
+              <AreaTarget
                 key={m.id}
-                type="button"
-                className="atlas-label-target absolute"
+                id={m.id}
+                register={registerLabel}
                 aria-label={m.name}
-                hidden
-                ref={(node) => {
-                  if (node) {
-                    labelTargets.current.set(m.id, node);
-                    requestPaint();
-                  } else labelTargets.current.delete(m.id);
-                }}
                 onPointerEnter={() => {
                   hoveredRef.current = m.id;
                   requestPaint();
@@ -1828,188 +1883,39 @@ export function MapView({
       )}
 
       {tool === "draw" && (
-        <Panel
-          style={{
-            left: px(midX - (drawBarW * g) / 2),
-            top: u(6),
-            width: u(drawBarW),
-            height: u(64),
+        <DrawBar
+          theme={theme}
+          g={g}
+          left={midX - (DRAW_BAR_W * g) / 2}
+          tool={drawTool}
+          widthIdx={widthIdx}
+          colorIdx={colorIdx}
+          onTool={(t) => {
+            setDrawTool(t);
+            drawRef.current.tool = t;
           }}
-          role="group"
-          aria-label="Рисование"
-        >
-          {DRAW_TOOLS.map((d, i) => (
-            <div
-              key={d.tool}
-              className="absolute"
-              style={{ left: u(6 + i * 20), top: u(4) }}
-            >
-              <IconButton
-                theme={theme}
-                icon={d.icon}
-                label={d.label}
-                size={18}
-                offset={i + 3}
-                pressed={drawTool === d.tool}
-                onClick={() => {
-                  setDrawTool(d.tool);
-                  drawRef.current.tool = d.tool;
-                }}
-              />
-            </div>
-          ))}
-          {WIDTHS.map((wd, i) => (
-            <button
-              key={wd}
-              type="button"
-              aria-label={`Толщина ${wd}`}
-              aria-pressed={widthIdx === i}
-              className="absolute grid place-items-center"
-              style={{
-                left: u(6 + 5 * 20 + 4 + i * 14),
-                top: u(4),
-                width: u(13),
-                height: u(18),
-                cursor: "pointer",
-                background:
-                  widthIdx === i
-                    ? "color-mix(in srgb, var(--gold) 25%, transparent)"
-                    : undefined,
-                border:
-                  widthIdx === i ? `${u(1)} solid var(--gold)` : undefined,
-              }}
-              onClick={() => {
-                setWidthIdx(i);
-                drawRef.current.width = wd;
-              }}
-            >
-              <span
-                style={{
-                  width: u(wd + 1),
-                  height: u(wd + 1),
-                  background:
-                    PALETTE[colorIdx] === "#ffffff" ||
-                    PALETTE[colorIdx] === "#f2e6c8"
-                      ? "var(--ink)"
-                      : PALETTE[colorIdx],
-                }}
-              />
-            </button>
-          ))}
-          <div
-            className="absolute"
-            style={{ left: u(drawBarW - 7 - 38 - 1), top: u(4) }}
-          >
-            <IconButton
-              theme={theme}
-              icon="undo"
-              label="Отменить [Ctrl+Z]"
-              size={18}
-              offset={9}
-              onClick={doUndo}
-            />
-          </div>
-          <div
-            className="absolute"
-            style={{ left: u(drawBarW - 7 - 18 - 1), top: u(4) }}
-          >
-            <IconButton
-              theme={theme}
-              icon="trash"
-              label="Стереть все рисунки этого измерения"
-              size={18}
-              offset={10}
-              onClick={() => setOverlay("confirm")}
-            />
-          </div>
-          {PALETTE.map((col, i) => (
-            <button
-              key={i}
-              type="button"
-              aria-label={`Цвет ${i + 1}`}
-              aria-pressed={colorIdx === i}
-              className="absolute"
-              style={{
-                left: u(7 + (i % 20) * 11 - 1),
-                top: u(27 + Math.floor(i / 20) * 11 - 1),
-                width: u(11),
-                height: u(11),
-                background: col,
-                border: `${u(1)} solid var(--ink)`,
-                outline:
-                  colorIdx === i
-                    ? `${u(1)} solid var(--gold-light)`
-                    : undefined,
-                boxShadow:
-                  colorIdx === i
-                    ? `0 0 0 ${u(1)} var(--gold) inset`
-                    : undefined,
-                cursor: "pointer",
-              }}
-              onClick={() => {
-                setColorIdx(i);
-                drawRef.current.color = col;
-              }}
-            />
-          ))}
-        </Panel>
+          onWidth={(i) => {
+            setWidthIdx(i);
+            drawRef.current.width = WIDTHS[i];
+          }}
+          onColor={(i) => {
+            setColorIdx(i);
+            drawRef.current.color = PALETTE[i];
+          }}
+          onUndo={doUndo}
+          onClear={() => setOverlay("confirm")}
+        />
       )}
 
-      {/* MapScreen.drawStatus: cursor position (staff only on this site) and the scale bar */}
-      <Panel
-        className="flex items-center"
-        style={{
-          left: u(6 + TB + 10 + (listOpen ? listW + 4 : 0)),
-          bottom: u(6),
-          height: u(16),
-          padding: `0 ${u(6)}`,
-          gap: u(5),
-        }}
-      >
-        {staff && cursor && (
-          <span style={{ marginRight: u(7), whiteSpace: "pre" }}>
-            {`X ${cursor[0]}   Z ${cursor[1]}`}
-          </span>
-        )}
-        <span
-          className="relative"
-          style={{ width: px(scaleInfo.px * g), height: u(7), flex: "none" }}
-          aria-hidden="true"
-        >
-          <span
-            className="absolute inset-x-0"
-            style={{ bottom: u(1), height: u(2), background: "var(--ink)" }}
-          />
-          <span
-            className="absolute left-0"
-            style={{
-              bottom: 0,
-              width: u(1),
-              height: u(7),
-              background: "var(--ink)",
-            }}
-          />
-          <span
-            className="absolute right-0"
-            style={{
-              bottom: 0,
-              width: u(1),
-              height: u(7),
-              background: "var(--ink)",
-            }}
-          />
-          <span
-            className="absolute left-1/2"
-            style={{
-              bottom: u(1),
-              width: u(1),
-              height: u(4),
-              background: "var(--ink)",
-            }}
-          />
-        </span>
-        <span style={{ color: "var(--ink-soft)" }}>{scaleInfo.blocks} бл.</span>
-      </Panel>
+      {/* MapScreen.drawStatus: the cursor position (staff only on this site) and the scale bar */}
+      <StatusBar
+        g={g}
+        left={6 + TB + 10 + (listOpen ? listW + 4 : 0)}
+        staff={staff}
+        cursorRef={cursorText}
+        scalePx={scaleInfo.px}
+        blocks={scaleInfo.blocks}
+      />
 
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -2118,221 +2024,36 @@ export function MapView({
 
       {/* MapScreen.drawDims */}
       {overlay === "dims" && (
-        <>
-          <div className="atlas-dim" onClick={() => setOverlay("none")} />
-          <Panel
-            role="group"
-            aria-label="Измерения"
-            style={{
-              left: u(6 + TB + 8),
-              top: u(Math.max(6, 6 + globeAt * (TB + 3))),
-              width: u(150),
-              padding: `${u(5)} ${u(7)} ${u(7)}`,
-            }}
-          >
-            <div className="atlas-title" style={{ marginBottom: u(5) }}>
-              Измерения
-            </div>
-            <div className="flex flex-col" style={{ gap: u(3) }}>
-              {(["overworld", "nether"] as const).map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  className="atlas-text-btn"
-                  aria-pressed={dim === d}
-                  onClick={() => {
-                    if (d !== dim) {
-                      setStatus("loading");
-                      setDim(d);
-                      ruler.current = [];
-                      setRulerText([]);
-                    }
-                    setOverlay("none");
-                  }}
-                >
-                  {dim === d ? `» ${DIM_NAMES[d]} «` : DIM_NAMES[d]}
-                </button>
-              ))}
-            </div>
-          </Panel>
-        </>
+        <DimsMenu
+          g={g}
+          left={6 + TB + 8}
+          top={Math.max(6, 6 + globeAt * (TB + 3))}
+          dim={dim}
+          onClose={() => setOverlay("none")}
+          onPick={(d) => {
+            if (d !== dim) {
+              setStatus("loading");
+              setDim(d);
+              ruler.current = [];
+              setRulerText([]);
+            }
+            setOverlay("none");
+          }}
+        />
       )}
 
       {/* SettingsScreen */}
       {overlay === "settings" && (
-        <>
-          <div
-            className="atlas-dim"
-            style={{ background: "var(--dim)" }}
-            onClick={() => setOverlay("none")}
-          />
-          <Panel
-            role="dialog"
-            aria-label="Настройки"
-            style={{
-              left: "50%",
-              top: "50%",
-              transform: "translate(-50%,-50%)",
-              width: u(settingsW),
-              maxHeight: `calc(100% - ${u(16)})`,
-              padding: `${u(6)} ${u(10)} ${u(28)}`,
-              overflowY: "auto",
-            }}
-          >
-            <div className="atlas-title" style={{ marginBottom: u(7) }}>
-              Настройки
-            </div>
-            <div className="absolute" style={{ right: u(4), top: u(4) }}>
-              <IconButton
-                theme={theme}
-                icon="close"
-                label="Закрыть настройки"
-                size={13}
-                offset={2}
-                onClick={() => setOverlay("none")}
-              />
-            </div>
-            <div
-              className={twoCols ? "flex" : "flex flex-col"}
-              style={{ gap: u(10) }}
-            >
-              <div style={{ width: u(colW) }}>
-                <div className="atlas-section">Оформление</div>
-                <div className="grid grid-cols-2" style={{ gap: u(4) }}>
-                  {THEMES.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      className="atlas-theme"
-                      aria-pressed={theme.id === t.id}
-                      aria-label={t.name}
-                      onClick={() => chooseTheme(t)}
-                      style={{
-                        width: u(tileW),
-                        backgroundImage: `url(${t.panel})`,
-                        color: t.ink,
-                      }}
-                    >
-                      <span
-                        className="absolute"
-                        style={{ left: u(4), top: u(4) }}
-                      >
-                        {t.name}
-                      </span>
-                      {theme.id === t.id && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={toolIcon(t, "check")}
-                          alt=""
-                          className="absolute"
-                          style={{
-                            right: u(2),
-                            top: u(2),
-                            width: u(12),
-                            height: u(12),
-                          }}
-                        />
-                      )}
-                      <span
-                        className="absolute"
-                        style={{
-                          left: u(3),
-                          bottom: u(3),
-                          width: u(26),
-                          height: u(10),
-                          background: `url(${t.panelDark}) 0 0 / ${u(256)}`,
-                          border: `${u(1)} solid ${t.ink}`,
-                        }}
-                      />
-                      <span
-                        className="absolute"
-                        style={{
-                          left: u(33),
-                          right: u(5),
-                          bottom: u(7),
-                          height: u(2),
-                          background: t.accent,
-                        }}
-                      />
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div style={{ width: u(colW) }}>
-                <div className="atlas-section">Карта</div>
-                <div className="flex flex-col" style={{ gap: u(3) }}>
-                  <button
-                    type="button"
-                    className="atlas-text-btn"
-                    aria-pressed={prefs.players}
-                    onClick={() =>
-                      savePrefs({ ...prefs, players: !prefs.players })
-                    }
-                  >
-                    Игроки на карте: {prefs.players ? "вкл" : "выкл"}
-                  </button>
-                  <button
-                    type="button"
-                    className="atlas-text-btn"
-                    aria-pressed={prefs.drawings}
-                    onClick={() =>
-                      savePrefs({ ...prefs, drawings: !prefs.drawings })
-                    }
-                  >
-                    Рисунки на карте: {prefs.drawings ? "вкл" : "выкл"}
-                  </button>
-                </div>
-                <p className="atlas-hint" style={{ marginTop: u(6) }}>
-                  Рисунки хранятся только в этом браузере.
-                </p>
-                <p className="atlas-hint" style={{ marginTop: u(6) }}>
-                  Вид карты и интерфейс — мод{" "}
-                  <a
-                    href="https://github.com/erkinpaw/atlasmap"
-                    className="underline"
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    AtlasMap
-                  </a>{" "}
-                  (erkinpaw, лицензия{" "}
-                  <a
-                    href="/map/ATLASMAP-LICENSE.txt"
-                    className="underline"
-                    target="_blank"
-                  >
-                    MIT
-                  </a>
-                  ).
-                </p>
-                {hasCollections && (
-                  <Link href="/map/collections" className="underline">
-                    Подборки атласа
-                  </Link>
-                )}
-              </div>
-            </div>
-            <div
-              className="absolute"
-              style={{
-                left: "50%",
-                bottom: u(6),
-                transform: "translateX(-50%)",
-              }}
-            >
-              <button
-                type="button"
-                className="atlas-text-btn"
-                style={{ width: u(100) }}
-                onClick={() => setOverlay("none")}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={toolIcon(theme, "check")} alt="" />
-                Готово
-              </button>
-            </div>
-          </Panel>
-        </>
+        <SettingsDialog
+          theme={theme}
+          g={g}
+          gw={gw}
+          prefs={prefs}
+          hasCollections={hasCollections}
+          onTheme={chooseTheme}
+          onPrefs={savePrefs}
+          onClose={() => setOverlay("none")}
+        />
       )}
 
       {areaEdit && (
@@ -2370,17 +2091,17 @@ export function MapView({
               </select>
             </label>
           )}
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap" style={{ gap: u(3) }}>
             <button
               type="button"
-              className="atlas-inset px-2 py-1"
+              className="atlas-text-btn"
               onClick={finishArea}
             >
               Замкнуть контур
             </button>
             <button
               type="button"
-              className="atlas-inset px-2 py-1"
+              className="atlas-text-btn"
               disabled={!areaHistory.length}
               onClick={() => {
                 const previous = areaHistory.at(-1);
@@ -2395,7 +2116,7 @@ export function MapView({
             </button>
             <button
               type="button"
-              className="atlas-inset px-2 py-1"
+              className="atlas-text-btn"
               onClick={closeArea}
             >
               Назад
@@ -2409,18 +2130,13 @@ export function MapView({
           theme={theme}
           g={g}
           width={listW}
-          total={markers.filter((m) => m.dim === dim).length}
-          markers={sortMarkers(
-            markers.filter((m) => m.dim === dim),
-            sort,
-            query,
-            viewMid,
-          )}
+          total={dimMarkers.length}
+          markers={listed}
           selected={selectedId}
           hidden={hidden}
           sort={sort}
           query={query}
-          from={viewMid}
+          from={listFrom}
           emptyText={
             markersUnavailable
               ? "Не удалось загрузить метки."

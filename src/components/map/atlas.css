@@ -338,14 +338,15 @@
   outline-offset: 2px;
 }
 
+/* the area outline editor, in GUI pixels like every other panel */
 .atlas-area-editor {
   z-index: 2;
   left: 50%;
-  bottom: 42px;
+  bottom: calc(var(--g) * 28);
   width: max-content;
-  max-width: calc(100% - 24px);
+  max-width: calc(100% - var(--g) * 12);
   transform: translateX(-50%);
   display: grid;
-  gap: 6px;
-  padding: 10px;
+  gap: calc(var(--g) * 4);
+  padding: calc(var(--g) * 6) calc(var(--g) * 8);
 }

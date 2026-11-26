@@ -159,6 +159,39 @@ describe.skipIf(!enabled)("map markers (staging)", () => {
     expect(await getMarker(carol, route.id)).toBeNull();
   });
 
+  it("lists for each viewer exactly the markers they may see, newest last", async () => {
+    const guildOnly = await createMarker(
+      alice,
+      input({ visibility: "guild", name: "Склад гильдии" }),
+    );
+    const pending = await createMarker(alice, input({ name: "На проверке" }));
+    const shown = await createMarker(alice, input({ name: "Открытая" }));
+    await decideMarker(mod.userId!, shown.id, "approve", "");
+    const seen = async (v: MarkerViewer) =>
+      ids(await listMarkers(v, "overworld"));
+
+    // the guild member: the guild marker and the approved public one, not the pending one
+    const forBob = await seen(bob);
+    expect(forBob).toEqual(expect.arrayContaining([guildOnly.id, shown.id]));
+    expect(forBob).not.toContain(pending.id);
+    // someone outside the guild, and a guest: only the approved public one
+    for (const v of [carol, guest]) {
+      const list = await seen(v);
+      expect(list).toContain(shown.id);
+      expect(list).not.toContain(guildOnly.id);
+      expect(list).not.toContain(pending.id);
+    }
+    // the author sees all three, in the order they were put
+    const forAlice = await seen(alice);
+    const order = [guildOnly.id, pending.id, shown.id].map((id) =>
+      forAlice.indexOf(id),
+    );
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // a moderator sees the pending one too
+    expect(await seen(mod)).toContain(pending.id);
+  });
+
   it("shows a public marker to its author at once and to the others after approval", async () => {
     const m = await createMarker(alice, input());
     expect(m.status).toBe("pending");

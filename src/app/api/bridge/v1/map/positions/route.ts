@@ -105,8 +105,15 @@ export async function POST(req: NextRequest) {
         payload: { t: now, p: dots, staff: viewer.show_coordinates },
       };
     });
+    // one request per 15 viewers, all at once: with many viewers a serial chain would outlast
+    // the one-second cadence of the plugin
+    const batches = [];
     for (let i = 0; i < messages.length; i += 15)
-      await broadcast(messages.slice(i, i + 15));
+      batches.push(broadcast(messages.slice(i, i + 15)));
+    const failed = (await Promise.allSettled(batches)).find(
+      (r) => r.status === "rejected",
+    );
+    if (failed) throw (failed as PromiseRejectedResult).reason;
   } catch (e) {
     // positions are perishable: the next batch replaces this one, so a failed push is logged only
     console.error("map position broadcast failed", e);

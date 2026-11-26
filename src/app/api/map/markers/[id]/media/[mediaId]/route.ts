@@ -23,7 +23,8 @@ export async function GET(
     headers: {
       "Content-Type": "image/webp",
       "Content-Length": String(file.size),
-      "Cache-Control": "private, no-store",
+      // a stored screenshot never changes; private, and short, because access can be revoked
+      "Cache-Control": "private, max-age=300",
       "X-Content-Type-Options": "nosniff",
     },
   });

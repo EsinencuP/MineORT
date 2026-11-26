@@ -140,19 +140,49 @@ export async function getVisibleMarkerRow(v: MarkerViewer, id: string) {
   return row && canSee(v, row) ? row : null;
 }
 
+/** The Data API returns at most this many rows per request, so longer lists are read in pages. */
+const PAGE = 1000;
+/** A map never needs more markers than this at once; the newest win when there are more. */
+const MAX_LISTED = 10_000;
+
+/**
+ * The same rule as canSee, as a PostgREST filter, so markers this viewer may not see are not even
+ * read. canSee still runs on every row as the last word.
+ */
+function visibleFilter(v: MarkerViewer): string | null {
+  if (v.moderator) return null;
+  const parts = ["and(visibility.eq.public,moderation_status.eq.approved)"];
+  if (v.userId) parts.push(`author_id.eq.${v.userId}`);
+  if (v.guildId)
+    parts.push(
+      `and(visibility.eq.guild,moderation_status.eq.approved,guild_id.eq.${v.guildId})`,
+    );
+  return parts.join(",");
+}
+
 /** Every marker of a dimension this viewer may see (R13): the rest never leaves the server. */
 export async function listMarkers(v: MarkerViewer, dim: Dim) {
-  const { data, error } = await db()
-    .from("map_markers")
-    .select(COLUMNS)
-    .eq("dim", dim)
-    .is("deleted_at", null)
-    .order("created_at")
-    .limit(5000);
-  if (error) throw new Error(`map_markers list: ${error.message}`);
+  const filter = visibleFilter(v);
+  const rows: MarkerRow[] = [];
+  for (let from = 0; from < MAX_LISTED; from += PAGE) {
+    let query = db()
+      .from("map_markers")
+      .select(COLUMNS)
+      .eq("dim", dim)
+      .is("deleted_at", null);
+    if (filter) query = query.or(filter);
+    // newest first, so a very full map drops its oldest markers, never the one just put
+    const { data, error } = await query
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`map_markers list: ${error.message}`);
+    rows.push(...(data as MarkerRow[]));
+    if (data.length < PAGE) break;
+  }
   return toDtos(
     v,
-    (data as MarkerRow[]).filter((m) => canSee(v, m)),
+    rows.filter((m) => canSee(v, m)).reverse(),
   );
 }
 
