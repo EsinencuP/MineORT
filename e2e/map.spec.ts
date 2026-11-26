@@ -163,6 +163,36 @@ test.describe("map with the atlas flag on", () => {
         };
         await route.fulfill({ json: { marker: saved } });
       });
+      const name = "Область на карте";
+      await page.addInitScript((name) => {
+        const { fillRect, strokeText } = CanvasRenderingContext2D.prototype;
+        CanvasRenderingContext2D.prototype.fillRect = function (x, y, w, h) {
+          if (
+            x === 0 &&
+            y === 0 &&
+            w === this.canvas.clientWidth &&
+            h === this.canvas.clientHeight
+          )
+            delete this.canvas.dataset.labelStroke;
+          fillRect.call(this, x, y, w, h);
+        };
+        CanvasRenderingContext2D.prototype.strokeText = function (
+          text,
+          x,
+          y,
+          maxWidth,
+        ) {
+          if (text === name)
+            this.canvas.dataset.labelStroke = JSON.stringify([
+              this.font,
+              this.strokeStyle,
+              this.lineWidth,
+              x,
+              y,
+            ]);
+          strokeText.call(this, text, x, y, maxWidth);
+        };
+      }, name);
       await page.goto("/map");
       const canvas = page.getByRole("img", { name: /Карта мира/ });
       const box = (await canvas.boundingBox())!;
@@ -175,9 +205,11 @@ test.describe("map with the atlas flag on", () => {
       await page.getByRole("button", { name: "Поставить метку" }).click();
       await addVertex(start);
       const editor = page.getByRole("dialog", { name: "Новая метка" });
-      const name = "Область на карте";
       await editor.getByLabel("Название").fill(name);
+      await page.evaluate(() => document.fonts.ready.then(() => undefined));
       await editor.getByRole("button", { name: /Ориентир/ }).click();
+      await expect(canvas).toHaveAttribute("data-label-stroke", /./);
+      const labelStroke = (await canvas.getAttribute("data-label-stroke"))!;
       await editor.getByRole("button", { name: "Обвести область" }).click();
 
       await addVertex(start);
@@ -192,6 +224,8 @@ test.describe("map with the atlas flag on", () => {
       await expect(
         editor.getByRole("button", { name: "Изменить область" }),
       ).toBeVisible();
+      await canvas.evaluate(() => new Promise(requestAnimationFrame));
+      await expect(canvas).toHaveAttribute("data-label-stroke", labelStroke);
       await editor.getByRole("button", { name: "Сохранить" }).click();
       await expect(
         page.getByRole("dialog", { name: `Метка: ${name}` }),
@@ -201,24 +235,42 @@ test.describe("map with the atlas flag on", () => {
       expect(new Set(saved?.boundary?.map(String)).size).toBe(3);
 
       await page.reload();
-      await page.getByRole("button", { name: /Список меток/ }).click();
-      await page
-        .getByRole("region", { name: "Список меток" })
-        .getByRole("button", { name: new RegExp(name) })
-        .click();
+      const label = page.getByRole("button", { name, exact: true });
+      await expect(label).toBeVisible();
+      const labelBox = (await label.boundingBox())!;
+      if (info.project.use.hasTouch) await label.tap();
+      else await label.click();
       const card = page.getByRole("dialog", { name: `Метка: ${name}` });
       await card.getByRole("button", { name: "Настроить" }).click();
+      const settings = page.getByRole("dialog", { name: "Настройка метки" });
       await expect(
-        page
-          .getByRole("dialog", { name: "Настройка метки" })
-          .getByRole("button", { name: "Изменить область" }),
+        settings.getByRole("button", { name: "Изменить область" }),
+      ).toBeVisible();
+      await settings.getByTitle("Отмена", { exact: true }).click();
+      await page.getByRole("button", { name: "Поставить метку" }).click();
+      await addVertex({ x: start.x + 60, y: start.y - 45 });
+      await editor.getByRole("button", { name: /Иконка:/ }).click();
+      const picker = page.getByRole("dialog", { name: /Выберите иконку/ });
+      await expect(picker).toBeVisible();
+      expect(
+        await picker.evaluate(
+          (el, { x, y, width, height }) =>
+            el.contains(
+              document.elementFromPoint(x + width / 2, y + height / 2),
+            ),
+          labelBox,
+        ),
+      ).toBe(true);
+      await picker.getByRole("button", { name: "Шахта", exact: true }).click();
+      await expect(
+        editor.getByRole("button", { name: "Иконка: Шахта" }),
       ).toBeVisible();
     });
   }
 
   test("player trails refresh and draw separated segments", async ({
     page,
-  }) => {
+  }, info) => {
     test.skip(process.env.E2E_MAP_FIXTURE !== "1", "uses a member fixture");
     await page.route("**/api/map/markers?*", (route) =>
       route.fulfill({
@@ -277,6 +329,18 @@ test.describe("map with the atlas flag on", () => {
     await page.goto("/map");
     const canvas = page.getByRole("img", { name: /Карта мира/ });
     await expect(canvas).toHaveAttribute("data-trail-segments", "2");
+    const toolbar = page.getByRole("toolbar", { name: "Инструменты карты" });
+    await expect(
+      toolbar.getByRole("button", { name: "Поставить метку" }),
+    ).toBeVisible();
+    await expect(
+      toolbar.getByRole("button", {
+        name: /Нарисовать маршрут|Сохранить путь/,
+      }),
+    ).toHaveCount(0);
+    if (info.project.use.hasTouch) await canvas.tap();
+    else await canvas.click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
 
     segments = [segments[0]];
     await page.clock.fastForward(15_050);
@@ -354,77 +418,33 @@ test.describe("map with the atlas flag on", () => {
     await expect(card).toBeVisible();
   });
 
-  test("a dragged waypoint updates the route before it is saved", async ({
-    page,
-  }, info) => {
-    test.skip(process.env.E2E_MAP_FIXTURE !== "1", "uses a member fixture");
-    test.skip(
-      info.project.use.hasTouch === true,
-      "covers pointer dragging and double click",
-    );
-    let savedPoints: TrailPoint[] = [];
-    await page.route("**/api/map/markers?*", (route) =>
-      route.fulfill({
-        json: {
-          markers: [],
-          me: {
-            signedIn: true,
-            canCreate: true,
-            canLabel: false,
-            canModerate: false,
-            inGuild: true,
-          },
-        },
-      }),
-    );
-    await page.route("**/api/map/markers", async (route) => {
-      const draft = route.request().postDataJSON();
-      expect(draft).toMatchObject({ kind: "route", visibility: "guild" });
-      savedPoints = draft.routePoints;
-      await route.fulfill({
-        json: {
-          marker: {
-            ...draft,
-            id: "a704ddae-c16e-4345-bcf8-ee3f4b429cc6",
-            geometry: [savedPoints],
-            status: "approved",
-            author: "Player",
-            mine: true,
-            canEdit: true,
-            canDelete: true,
-            createdAt: "2026-11-25T10:00:00.000Z",
-          },
+  test("the marker API refuses to save paths and routes", async ({
+    request,
+  }) => {
+    for (const variant of [
+      { kind: "path" },
+      {
+        kind: "route",
+        routePoints: [
+          [0, 0],
+          [10, 10],
+        ],
+      },
+    ]) {
+      const response = await request.post("/api/map/markers", {
+        data: {
+          dim: "overworld",
+          x: 0,
+          z: 0,
+          name: "Path",
+          icon: "pin",
+          visibility: "private",
+          ...variant,
         },
       });
-    });
-    await page.goto("/map");
-    const canvas = page.getByRole("img", { name: /Карта мира/ });
-    const box = (await canvas.boundingBox())!;
-    const y = box.height / 2 - 40;
-    const a = { x: box.width / 2 - 60, y };
-    const b = { x: box.width / 2, y };
-    const c = { x: box.width / 2 + 60, y };
-    await page.getByRole("button", { name: "Нарисовать маршрут" }).click();
-    for (const position of [a, b, c]) await canvas.click({ position });
-    const builder = page.getByRole("region", { name: "Построение маршрута" });
-    const length = builder.getByRole("status");
-    const before = await length.textContent();
-    await page.mouse.move(box.x + b.x, box.y + b.y);
-    await page.mouse.down();
-    await page.mouse.move(box.x + b.x, box.y + b.y + 72, { steps: 4 });
-    await page.mouse.up();
-    await expect(length).not.toHaveText(before ?? "0");
-    await canvas.dblclick({ position: c });
-    const editor = page.getByRole("dialog", { name: "Новая метка" });
-    const name = "Маршрут гильдии";
-    await editor.getByLabel("Название").fill(name);
-    await editor.getByRole("button", { name: "Гильдия", exact: true }).click();
-    await editor.getByRole("button", { name: "Сохранить" }).click();
-    await expect(
-      page.getByRole("dialog", { name: `Метка: ${name}` }),
-    ).toContainText("Длина");
-    expect(savedPoints).toHaveLength(3);
-    expect(savedPoints[1][1]).toBeGreaterThan(savedPoints[0][1]);
+      expect(response.status()).toBe(400);
+      expect(await response.json()).toMatchObject({ error: "marker_invalid" });
+    }
   });
 
   test("the page shows no coordinates", async ({ page }) => {

@@ -139,33 +139,14 @@ describe("marker input", () => {
     expect(parseMarkerInput({ ...ok, z: 40_000_000 })).toBeNull();
     expect(parseMarkerInput({ ...ok, visibility: "everyone" })).toBeNull();
     expect(parseMarkerInput({ ...ok, dim: "end" })).toBeNull();
-    expect(parseMarkerInput({ ...ok, kind: "route" })).toBeNull();
-    expect(
-      parseMarkerInput({ ...ok, kind: "route", routePoints: [[12, -40]] }),
-    ).toBeNull();
-    expect(
-      parseMarkerInput({
-        ...ok,
-        kind: "route",
-        routePoints: [
-          [12, -40],
-          [12, -40],
-        ],
-      }),
-    ).toBeNull();
-    expect(
-      parseMarkerInput({
-        ...ok,
-        kind: "route",
-        routePoints: [
-          [12, -40],
-          [13, -40],
-        ],
-      })?.kind,
-    ).toBe("route");
-    expect(parseMarkerInput({ ...ok, kind: "route" }, "update")?.kind).toBe(
-      "route",
-    );
     expect(parseMarkerInput(null)).toBeNull();
   });
+
+  it.each(["path", "route"])(
+    "rejects creating a %s marker and accepts editing its existing card",
+    (kind) => {
+      expect(parseMarkerInput({ ...ok, kind })).toBeNull();
+      expect(parseMarkerInput({ ...ok, kind }, "update")?.kind).toBe(kind);
+    },
+  );
 });

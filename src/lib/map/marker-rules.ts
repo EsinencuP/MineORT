@@ -1,7 +1,6 @@
 // Who sees and changes a marker (R13, R18), and what a valid marker is. Pure, so it is tested alone.
 import icons from "@/components/map/icons.json";
 import { validPolygon, type Vertex } from "./polygon";
-import { validRoutePoints } from "./route-geometry";
 import type { TrailPoint } from "./trail-geometry";
 
 export type Visibility = "public" | "guild" | "private";
@@ -52,7 +51,6 @@ export type MarkerRow = {
 
 export type MarkerInput = {
   boundary?: Vertex[] | null;
-  routePoints?: TrailPoint[];
   kind: MarkerKind;
   dim: Dim;
   x: number;
@@ -132,10 +130,8 @@ export function parseMarkerInput(
       kind !== "label" &&
       kind !== "path" &&
       kind !== "route") ||
-    (kind === "route"
-      ? (mode === "create" || r.routePoints !== undefined) &&
-        !validRoutePoints(r.routePoints)
-      : r.routePoints !== undefined) ||
+    (mode === "create" && (kind === "path" || kind === "route")) ||
+    r.routePoints !== undefined ||
     (r.boundary !== undefined &&
       r.boundary !== null &&
       (kind !== "label" || !validPolygon(r.boundary))) ||
@@ -159,9 +155,6 @@ export function parseMarkerInput(
   return {
     ...(r.boundary !== undefined
       ? { boundary: r.boundary as Vertex[] | null }
-      : {}),
-    ...(r.routePoints !== undefined
-      ? { routePoints: r.routePoints as TrailPoint[] }
       : {}),
     kind,
     dim: r.dim,

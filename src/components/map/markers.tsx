@@ -11,7 +11,6 @@ import { fmtDistance, PALETTE } from "./drawing";
 import icons from "./icons.json";
 import { MarkerMedia } from "./marker-media";
 import { routeLength } from "@/lib/map/route-geometry";
-import type { TrailPoint } from "@/lib/map/trail-geometry";
 import type { MapMarker } from "./render/markers";
 
 type IconInfo = { id: string; ru: string; en: string };
@@ -472,7 +471,6 @@ export function MarkerCard(props: {
 export type Draft = {
   boundary?: MapMarker["boundary"];
   geometry?: MapMarker["geometry"];
-  routePoints?: TrailPoint[];
   id: string | null;
   kind: MapMarker["kind"];
   dim: "overworld" | "nether";

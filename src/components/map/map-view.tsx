@@ -59,18 +59,12 @@ import {
   drawMarkerPath,
   drawMarkers,
   markerAt,
-  markerPoint,
   type MapMarker,
 } from "./render/markers";
 import { drawPlayers } from "./render/players";
 import { TrailLayer } from "./render/trails";
 import { MAX_VERTICES, validPolygon, type Vertex } from "@/lib/map/polygon";
-import type { TrailHistory, TrailPoint } from "@/lib/map/trail-geometry";
-import {
-  MAX_ROUTE_POINTS,
-  routeLength,
-  validRoutePoints,
-} from "@/lib/map/route-geometry";
+import type { TrailHistory } from "@/lib/map/trail-geometry";
 
 type Dim = "overworld" | "nether";
 type Ref = { rx: number; rz: number; version: number };
@@ -92,7 +86,7 @@ type Me = {
   canModerate: boolean;
   inGuild: boolean;
 };
-type Tool = "none" | "ruler" | "draw" | "marker" | "route";
+type Tool = "none" | "ruler" | "draw" | "marker";
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 16;
@@ -130,6 +124,7 @@ export function MapView({
   hasCollections?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
+  const surface = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const cam = useRef<Camera>({ x: 256, z: 256, scale: 4 });
   const size = useRef<Viewport>({ width: 800, height: 500 });
@@ -187,9 +182,6 @@ export function MapView({
   const erased = useRef<Stroke[] | null>(null);
   const undo = useRef<(() => void)[]>([]);
   const ruler = useRef<[number, number][]>([]);
-  const [routePoints, setRoutePoints] = useState<TrailPoint[]>([]);
-  const routePointsRef = useRef<TrailPoint[]>([]);
-  const draggedRoutePoint = useRef<number | null>(null);
   const mouse = useRef<[number, number] | null>(null);
 
   // markers
@@ -208,7 +200,7 @@ export function MapView({
   const [areaHistory, setAreaHistory] = useState<Vertex[][]>([]);
   const focusedArea = useRef<string | null>(null);
   const touchedArea = useRef<string | null>(null);
-  const areaLabels = useRef(new Map<string, HTMLButtonElement>());
+  const labelTargets = useRef(new Map<string, HTMLButtonElement>());
   const [listOpen, setListOpen] = useState(false);
   const [sort, setSort] = useState<SortId>("name");
   const [query, setQuery] = useState("");
@@ -413,7 +405,6 @@ export function MapView({
     if (d0 && d0.dim === dimRef.current)
       shown.push({
         ...d0,
-        geometry: d0.routePoints ? [d0.routePoints] : d0.geometry,
         id: d0.id ?? "draft",
         status: "approved",
         author: "",
@@ -424,18 +415,6 @@ export function MapView({
       });
     const activeArea =
       focusedArea.current ?? hoveredRef.current ?? touchedArea.current;
-    for (const m of shown) {
-      const label = areaLabels.current.get(m.id);
-      if (!label) continue;
-      const [left, top] = markerPoint(c, size.current, m);
-      label.style.left = px(left);
-      label.style.top = px(top);
-      label.hidden =
-        left < 0 ||
-        top < 0 ||
-        left > size.current.width ||
-        top > size.current.height;
-    }
     const boundary =
       (d0?.dim === dimRef.current ? d0.boundary : null) ??
       shown.find((m) => m.id === activeArea)?.boundary ??
@@ -462,20 +441,21 @@ export function MapView({
           marker.color ?? t.accent,
         );
     }
-    if (tl === "route")
-      drawMarkerPath(
-        ctx,
-        c,
-        size.current,
-        [routePointsRef.current],
-        t.accent,
-        true,
-      );
     drawMarkers(ctx, c, size.current, shown, {
       g: gp,
       family: getComputedStyle(el).fontFamily,
       selected: d0 ? (d0.id ?? "draft") : sel,
       hovered: hoveredRef.current,
+      onLabelBounds: (id, bounds) => {
+        const target = labelTargets.current.get(id);
+        if (!target) return;
+        target.hidden = bounds === null;
+        if (!bounds) return;
+        target.style.left = px(bounds.left);
+        target.style.top = px(bounds.top);
+        target.style.width = px(bounds.width);
+        target.style.height = px(bounds.height);
+      },
       colors: {
         ink: t.ink,
         inkSoft: t.inkSoft,
@@ -702,17 +682,7 @@ export function MapView({
     [center, loadMarkers, refreshRegions],
   );
 
-  const changeRoute = (points: TrailPoint[]) => {
-    routePointsRef.current = points;
-    setRoutePoints(points);
-    requestPaint();
-  };
-
   const setTool = (t: Tool) => {
-    if (toolRef.current === "route" && t !== "route") {
-      draggedRoutePoint.current = null;
-      changeRoute([]);
-    }
     toolRef.current = t;
     setToolState(t);
     current.current = null;
@@ -932,17 +902,17 @@ export function MapView({
 
   // wheel zoom needs a non-passive listener to keep the page from scrolling
   useEffect(() => {
-    const cv = canvas.current;
-    if (!cv) return;
+    const map = surface.current;
+    if (!map) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const r = cv.getBoundingClientRect();
+      const r = map.getBoundingClientRect();
       const notches =
         Math.max(-3, Math.min(3, -e.deltaY / 100)) || (e.deltaY < 0 ? 1 : -1);
       zoomBy(Math.pow(1.2, notches), e.clientX - r.left, e.clientY - r.top);
     };
-    cv.addEventListener("wheel", onWheel, { passive: false });
-    return () => cv.removeEventListener("wheel", onWheel);
+    map.addEventListener("wheel", onWheel, { passive: false });
+    return () => map.removeEventListener("wheel", onWheel);
   }, [zoomBy]);
 
   // ------------------------------------------------------------------ markers
@@ -992,11 +962,7 @@ export function MapView({
   };
 
   /** Opens the editor for a new marker at the chosen world position. */
-  const startMarker = (
-    wx: number,
-    wz: number,
-    options?: Pick<Draft, "kind" | "routePoints">,
-  ) => {
+  const startMarker = (wx: number, wz: number) => {
     if (!me.canCreate) {
       flash(
         me.signedIn
@@ -1005,34 +971,23 @@ export function MapView({
       );
       return;
     }
-    if (toolRef.current === "marker" || toolRef.current === "route")
-      setTool("none");
+    if (toolRef.current === "marker") setTool("none");
     select(null);
     setMarkerError(null);
     setDraft({
       id: null,
-      kind: options?.kind ?? "point",
-      routePoints: options?.routePoints,
+      kind: "point",
       dim: dimRef.current,
       x: Math.floor(wx),
       z: Math.floor(wz),
       y: null,
-      name: `${options?.kind === "route" ? "Маршрут" : options?.kind === "path" ? "Путь" : "Метка"} ${markersRef.current.filter((m) => m.mine).length + 1}`,
+      name: `Метка ${markersRef.current.filter((m) => m.mine).length + 1}`,
       description: "",
       icon: "pin",
       color: null,
       visibility: "private",
     });
     setPanel("edit");
-  };
-
-  const finishRoute = () => {
-    const points = routePointsRef.current;
-    if (!validRoutePoints(points)) {
-      flash("Укажите минимум две разные соседние точки маршрута.");
-      return;
-    }
-    startMarker(...points[0], { kind: "route", routePoints: points });
   };
 
   const editMarker = (m: MapMarker) => {
@@ -1242,11 +1197,6 @@ export function MapView({
     return [e.clientX - r.left, e.clientY - r.top];
   };
 
-  const routePointAt = (mx: number, my: number): TrailPoint =>
-    screenToWorld(cam.current, size.current, mx, my).map(
-      Math.round,
-    ) as TrailPoint;
-
   const eraseAt = (mx: number, my: number) => {
     const list = strokesOf(dimRef.current);
     for (let i = list.length - 1; i >= 0; i--) {
@@ -1345,17 +1295,6 @@ export function MapView({
       cam: cam.current,
       dragging: false,
     };
-    if (
-      toolRef.current === "route" &&
-      e.button === 0 &&
-      pointers.current.size === 1
-    ) {
-      const index = routePointsRef.current.findIndex(([x, z]) => {
-        const [sx, sy] = worldToScreen(cam.current, size.current, x, z);
-        return Math.hypot(mx - sx, my - sy) <= 8;
-      });
-      draggedRoutePoint.current = index === -1 ? null : index;
-    }
     clearTimeout(longPress.current);
     // a long press on a touch screen does what a right click does
     if (e.pointerType === "touch" && toolRef.current === "none" && !areaEdit) {
@@ -1426,7 +1365,6 @@ export function MapView({
     const p = press.current;
     if (all.length === 2) {
       current.current = null;
-      draggedRoutePoint.current = null;
       const d = Math.hypot(all[0].x - all[1].x, all[0].y - all[1].y);
       if (pinch.current) {
         const r = e.currentTarget.getBoundingClientRect();
@@ -1441,17 +1379,6 @@ export function MapView({
       return;
     }
     if (!p) return;
-    const index = draggedRoutePoint.current;
-    if (toolRef.current === "route" && index !== null) {
-      p.dragging ||= Math.hypot(mx - p.x, my - p.y) > 3 * gRef.current;
-      if (p.dragging) {
-        const point = routePointAt(mx, my);
-        changeRoute(
-          routePointsRef.current.map((old, i) => (i === index ? point : old)),
-        );
-      }
-      return;
-    }
     if (toolRef.current === "draw" && p.button === 0) {
       if (drawRef.current.tool === "eraser") {
         eraseAt(mx, my);
@@ -1492,22 +1419,6 @@ export function MapView({
     if (!p || pointers.current.size > 0) return;
     press.current = null;
     const [mx, my] = local(e);
-    if (toolRef.current === "route") {
-      const grabbed = draggedRoutePoint.current !== null;
-      draggedRoutePoint.current = null;
-      if (e.type === "pointercancel" || p.dragging || grabbed || p.button !== 0)
-        return;
-      const points = routePointsRef.current;
-      const point = routePointAt(mx, my);
-      const last = points.at(-1);
-      if (last && last[0] === point[0] && last[1] === point[1]) return;
-      if (points.length >= MAX_ROUTE_POINTS) {
-        flash(`Максимум точек маршрута: ${MAX_ROUTE_POINTS}.`);
-        return;
-      }
-      changeRoute([...points, point]);
-      return;
-    }
     if (toolRef.current === "draw" && p.button === 0) {
       const list = strokesOf(dimRef.current);
       if (drawRef.current.tool === "eraser") {
@@ -1580,11 +1491,6 @@ export function MapView({
       return;
     }
     if (overlay !== "none") return;
-    if (e.key === "Enter" && tool === "route" && e.target === root.current) {
-      e.preventDefault();
-      finishRoute();
-      return;
-    }
     if (e.key === "Enter" && tool === "marker" && e.target === root.current) {
       e.preventDefault();
       startMarker(cam.current.x, cam.current.z);
@@ -1631,8 +1537,6 @@ export function MapView({
   type Action =
     | "list"
     | "place"
-    | "route"
-    | "save-path"
     | "markers"
     | "ruler"
     | "draw"
@@ -1661,13 +1565,6 @@ export function MapView({
       label: "Поставить метку",
       pressed: tool === "marker",
     },
-    {
-      action: "route",
-      icon: "line",
-      label: "Нарисовать маршрут",
-      pressed: tool === "route",
-    },
-    { action: "save-path", icon: "check", label: "Сохранить путь" },
     {
       action: "ruler",
       icon: "ruler",
@@ -1721,17 +1618,6 @@ export function MapView({
         if (gw < 420) setListOpen(false);
         root.current?.focus();
       }
-    } else if (action === "route") {
-      const placing = tool !== "route";
-      setTool(placing ? "route" : "none");
-      if (placing) {
-        closePanel();
-        setListOpen(false);
-        root.current?.focus();
-      }
-    } else if (action === "save-path") {
-      setTool("none");
-      startMarker(cam.current.x, cam.current.z, { kind: "path" });
     } else if (action === "markers")
       savePrefs({ ...prefs, markers: !prefs.markers });
     else if (action === "ruler") setTool(tool === "ruler" ? "none" : "ruler");
@@ -1745,9 +1631,8 @@ export function MapView({
       setOverlay(overlay === "dims" ? "none" : "dims");
     else setOverlay("settings");
   }
-  const markerActions: Action[] = ["place", "route", "save-path"];
   const visibleToolbar = toolbar.filter(
-    (b) => !markerActions.includes(b.action) || me.canCreate,
+    (b) => b.action !== "place" || me.canCreate,
   );
   const globeAt = visibleToolbar.findIndex((b) => b.icon === "globe");
 
@@ -1767,26 +1652,74 @@ export function MapView({
       data-ornate={theme.ornate}
       className="atlas"
     >
-      <canvas
-        ref={canvas}
-        role="img"
-        aria-label="Карта мира. Перетаскивайте, чтобы двигать, колесо мыши или кнопки плюс и минус, чтобы менять масштаб."
-        className="absolute inset-0 size-full"
-        style={{ cursor: tool === "none" && !areaEdit ? "grab" : "crosshair" }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onPointerLeave={() => {
-          mouse.current = null;
-          setCursor(null);
-          if (toolRef.current !== "none") requestPaint();
-        }}
-        onContextMenu={(e) => e.preventDefault()}
-        onDoubleClick={() => {
-          if (tool === "route") finishRoute();
-        }}
-      />
+      <div ref={surface} className="absolute inset-0 isolate">
+        <canvas
+          ref={canvas}
+          role="img"
+          aria-label="Карта мира. Перетаскивайте, чтобы двигать, колесо мыши или кнопки плюс и минус, чтобы менять масштаб."
+          className="absolute inset-0 size-full"
+          style={{
+            cursor: tool === "none" && !areaEdit ? "grab" : "crosshair",
+          }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onPointerLeave={() => {
+            mouse.current = null;
+            setCursor(null);
+            if (toolRef.current !== "none") requestPaint();
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+        />
+        {overlay === "none" &&
+          tool === "none" &&
+          !areaEdit &&
+          markers
+            .filter(
+              (m) =>
+                m.kind === "label" &&
+                m.boundary &&
+                m.dim === dim &&
+                m.id !== draft?.id &&
+                (m.id === selectedId || (prefs.markers && !hidden.has(m.id))),
+            )
+            .map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className="atlas-label-target absolute"
+                aria-label={m.name}
+                hidden
+                ref={(node) => {
+                  if (node) {
+                    labelTargets.current.set(m.id, node);
+                    requestPaint();
+                  } else labelTargets.current.delete(m.id);
+                }}
+                onPointerEnter={() => {
+                  hoveredRef.current = m.id;
+                  requestPaint();
+                }}
+                onPointerLeave={() => {
+                  hoveredRef.current = null;
+                  requestPaint();
+                }}
+                onFocus={() => {
+                  focusedArea.current = m.id;
+                  requestPaint();
+                }}
+                onBlur={() => {
+                  focusedArea.current = null;
+                  requestPaint();
+                }}
+                onClick={() => {
+                  touchedArea.current = m.id;
+                  openView(m, false);
+                }}
+              />
+            ))}
+      </div>
 
       {/* MapScreen.drawToolbar */}
       <div
@@ -1804,9 +1737,7 @@ export function MapView({
             label={b.label}
             pressed={b.pressed}
             disabled={
-              (markerActions.includes(b.action) && panel === "edit") ||
-              (tool === "route" &&
-                (b.action === "dims" || b.action === "list")) ||
+              (b.action === "place" && panel === "edit") ||
               (areaEdit && (b.action === "ruler" || b.action === "draw"))
             }
             src={b.src}
@@ -1859,37 +1790,6 @@ export function MapView({
           }}
         >
           Выберите место на карте. Enter — поставить в центре.
-        </Panel>
-      )}
-
-      {tool === "route" && (
-        <Panel
-          role="region"
-          aria-label="Построение маршрута"
-          className="atlas-area-editor"
-        >
-          <p>
-            Ставьте точки щелчком и перетаскивайте их. Двойной щелчок завершает
-            маршрут.
-          </p>
-          <p role="status">Длина {fmtDistance(routeLength(routePoints))} бл.</p>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="atlas-inset px-2 py-1"
-              disabled={routePoints.length < 2}
-              onClick={finishRoute}
-            >
-              Завершить маршрут
-            </button>
-            <button
-              type="button"
-              className="atlas-inset px-2 py-1"
-              onClick={() => setTool("none")}
-            >
-              Отмена
-            </button>
-          </div>
         </Panel>
       )}
 
@@ -2435,51 +2335,6 @@ export function MapView({
         </>
       )}
 
-      {markers
-        .filter(
-          (m) =>
-            m.boundary &&
-            m.dim === dim &&
-            !hidden.has(m.id) &&
-            prefs.markers &&
-            !areaEdit,
-        )
-        .map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            className="atlas-area-label absolute"
-            ref={(node) => {
-              if (node) {
-                areaLabels.current.set(m.id, node);
-                requestPaint();
-              } else areaLabels.current.delete(m.id);
-            }}
-            onPointerEnter={() => {
-              hoveredRef.current = m.id;
-              requestPaint();
-            }}
-            onPointerLeave={() => {
-              hoveredRef.current = null;
-              requestPaint();
-            }}
-            onFocus={() => {
-              focusedArea.current = m.id;
-              requestPaint();
-            }}
-            onBlur={() => {
-              focusedArea.current = null;
-              requestPaint();
-            }}
-            onClick={() => {
-              touchedArea.current = m.id;
-              openView(m, false);
-              requestPaint();
-            }}
-          >
-            {m.name}
-          </button>
-        ))}
       {areaEdit && (
         <Panel
           className="atlas-area-editor"

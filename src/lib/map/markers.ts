@@ -20,8 +20,6 @@ import { loadViewer } from "./viewer";
 import type { Vertex } from "./polygon";
 import { awardProgress } from "@/lib/community/progress";
 import { isEnabled } from "@/lib/flags";
-import { loadOwnRecentPath } from "./trails";
-import { validRoutePoints } from "./route-geometry";
 import type { TrailPoint } from "./trail-geometry";
 
 /** Stable error codes of the map markers; user texts live in access/messages.ts. */
@@ -196,6 +194,8 @@ function guildFor(v: MarkerViewer, input: MarkerInput) {
 export async function createMarker(v: MarkerViewer, input: MarkerInput) {
   if (!v.userId || !(v.member || v.staff))
     throw new MarkerError("marker_forbidden");
+  if (input.kind !== "point" && input.kind !== "label")
+    throw new MarkerError("marker_invalid");
   if (input.kind === "label" && !v.staff)
     throw new MarkerError("label_forbidden");
   const guildId = input.kind !== "label" ? guildFor(v, input) : null;
@@ -213,32 +213,20 @@ export async function createMarker(v: MarkerViewer, input: MarkerInput) {
   )
     throw new MarkerError("marker_rate_limited");
 
-  let geometry: TrailPoint[][] | undefined;
-  if (input.kind === "path") {
-    geometry = await loadOwnRecentPath(v.userId, input.dim);
-    if (!geometry.length) throw new MarkerError("marker_path_empty");
-  } else if (input.kind === "route") {
-    if (!validRoutePoints(input.routePoints))
-      throw new MarkerError("marker_route_invalid");
-    geometry = [input.routePoints];
-  }
-  const anchor = geometry?.[0]?.[0];
-
   const { data, error } = await db()
     .from("map_markers")
     .insert({
       author_id: v.userId,
       kind: input.kind,
       dim: input.dim,
-      x: anchor ? Math.floor(anchor[0]) : input.x,
-      y: anchor ? null : input.y,
-      z: anchor ? Math.floor(anchor[1]) : input.z,
+      x: input.x,
+      y: input.y,
+      z: input.z,
       name: input.name,
       description: input.description,
       icon: input.icon,
       color: input.color,
       ...(input.boundary ? { boundary: input.boundary } : {}),
-      ...(geometry ? { geometry } : {}),
       visibility: input.kind === "label" ? "public" : input.visibility,
       guild_id: guildId,
       moderation_status:

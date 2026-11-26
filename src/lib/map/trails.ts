@@ -52,16 +52,3 @@ export async function purgeExpiredTrails() {
   if (error) throw new Error(`map_purge_trails: ${error.message}`);
   return data as number;
 }
-
-export async function loadOwnRecentPath(userId: string, dim: Dim) {
-  const { data, error } = await db().rpc("map_read_recent_own_path", {
-    p_user: userId,
-    p_dim: dim,
-  });
-  if (error) throw new Error(`map_read_recent_own_path: ${error.message}`);
-  return (data as TrailPoint[][])
-    .map((points) => simplifyTrail(points))
-    .filter((points) =>
-      points.some(([x, z]) => x !== points[0][0] || z !== points[0][1]),
-    );
-}

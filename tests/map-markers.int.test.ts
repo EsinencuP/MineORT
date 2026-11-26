@@ -133,83 +133,30 @@ describe.skipIf(!enabled)("map markers (staging)", () => {
     ).rejects.toThrow("marker_no_guild");
   });
 
-  it("stores a two-point route and restricts its geometry to the selected guild", async () => {
-    await expect(
-      createMarker(alice, input({ kind: "route", routePoints: [[0, 0]] })),
-    ).rejects.toThrow("marker_route_invalid");
+  it("rejects new path and route markers and keeps existing guild routes visible to members", async () => {
+    for (const kind of ["path", "route"] as const)
+      await expect(createMarker(alice, input({ kind }))).rejects.toThrow(
+        "marker_invalid",
+      );
+
     const points: [number, number][] = [
       [12, -2],
       [22, -2],
     ];
-    const route = await createMarker(
-      alice,
-      input({
-        kind: "route",
-        routePoints: points,
-        visibility: "guild",
-      }),
-    );
-    expect(route).toMatchObject({
-      kind: "route",
-      geometry: [points],
-      x: 12,
-      z: -2,
-    });
-    expect((await getMarker(bob, route.id))?.geometry).toEqual([points]);
-    expect(await getMarker(carol, route.id)).toBeNull();
-  });
-
-  it("makes a path from the author's last five minutes and gives a clear empty-path error", async () => {
-    const { data, error } = await db()
-      .from("bridge_servers")
-      .insert({ name: "Path integration fixture" })
+    const { data: route, error } = await db()
+      .from("map_markers")
+      .insert({
+        ...input({ kind: "route", x: 12, y: null, z: -2, visibility: "guild" }),
+        author_id: alice.userId,
+        guild_id: guildId,
+        moderation_status: "approved",
+        geometry: [points],
+      })
       .select("id")
       .single();
     if (error) throw error;
-    const serverId = data.id as string;
-    try {
-      const now = Date.now();
-      const segmentAt = new Date(now - 360_000).toISOString();
-      const point = (userId: string, seconds: number, x: number) => ({
-        server_id: serverId,
-        user_id: userId,
-        dim: "nether",
-        recorded_at: new Date(now - seconds * 1_000).toISOString(),
-        segment_at: segmentAt,
-        visibility: "all",
-        x,
-        y: 65,
-        z: 9,
-      });
-      const inserted = await db()
-        .from("map_trail_points")
-        .insert([
-          point(mod.userId!, 310, 99),
-          point(mod.userId!, 10, 2),
-          point(mod.userId!, 5, 8),
-          point(bob.userId!, 4, 500),
-          point(bob.userId!, 3, 600),
-        ]);
-      if (inserted.error) throw inserted.error;
-      const path = await createMarker(
-        mod,
-        input({ kind: "path", dim: "nether", visibility: "private" }),
-      );
-      expect(path.geometry).toEqual([
-        [
-          [2, 9],
-          [8, 9],
-        ],
-      ]);
-      await expect(
-        createMarker(
-          carol,
-          input({ kind: "path", dim: "nether", visibility: "private" }),
-        ),
-      ).rejects.toThrow("marker_path_empty");
-    } finally {
-      await db().from("bridge_servers").delete().eq("id", serverId);
-    }
+    expect((await getMarker(bob, route.id))?.geometry).toEqual([points]);
+    expect(await getMarker(carol, route.id)).toBeNull();
   });
 
   it("shows a public marker to its author at once and to the others after approval", async () => {

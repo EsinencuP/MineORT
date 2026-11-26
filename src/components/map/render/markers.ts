@@ -72,12 +72,10 @@ export function drawMarkerPath(
   view: Viewport,
   segments: TrailPoint[][],
   color: string,
-  handles = false,
 ) {
   ctx.save();
   ctx.strokeStyle = color;
-  ctx.fillStyle = color;
-  ctx.lineWidth = handles ? 3 : 2;
+  ctx.lineWidth = 2;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   for (const segment of segments) {
@@ -87,7 +85,6 @@ export function drawMarkerPath(
     ctx.moveTo(...points[0]);
     for (const point of points.slice(1)) ctx.lineTo(...point);
     ctx.stroke();
-    if (handles) for (const [x, y] of points) ctx.fillRect(x - 4, y - 4, 8, 8);
   }
   ctx.restore();
 }
@@ -173,6 +170,15 @@ export function drawMarkers(
     family: string;
     selected: string | null;
     hovered: string | null;
+    onLabelBounds: (
+      id: string,
+      bounds: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+      } | null,
+    ) => void;
     colors: {
       ink: string;
       inkSoft: string;
@@ -191,24 +197,40 @@ export function drawMarkers(
   ctx.font = `${10.5 * g}px ${opts.family}`;
   for (const m of list) {
     const [px, py] = markerPoint(cam, view, m);
-    if (px < -s || py < -s || px > view.width + s || py > view.height + s)
+    if (px < -s || py < -s || px > view.width + s || py > view.height + s) {
+      if (m.kind === "label" && m.boundary) opts.onLabelBounds(m.id, null);
       continue;
+    }
     const ix = Math.round(px - s / 2);
     const iy = Math.round(py - s / 2);
     const sel = m.id === opts.selected;
     const hov = m.id === opts.hovered;
 
     if (m.kind === "label") {
-      if (m.boundary) continue; // Interactive area labels are HTML buttons above the canvas.
       // a place name written on the map, larger, with a cream halo instead of a box
       ctx.font = `${13 * g}px ${opts.family}`;
-      const tw = ctx.measureText(m.name).width;
+      const text = ctx.measureText(m.name);
+      const x = Math.round(px - text.width / 2);
+      const y = Math.round(py + 4 * g);
+      if (m.boundary) {
+        const pad = 2 * g;
+        const left = x - text.actualBoundingBoxLeft - pad;
+        const top = y - text.actualBoundingBoxAscent - pad;
+        const right = x + text.actualBoundingBoxRight + pad;
+        const bottom = y + text.actualBoundingBoxDescent + pad;
+        opts.onLabelBounds(
+          m.id,
+          right > 0 && bottom > 0 && left < view.width && top < view.height
+            ? { left, top, width: right - left, height: bottom - top }
+            : null,
+        );
+      }
       ctx.lineJoin = "round";
       ctx.lineWidth = 3 * g;
       ctx.strokeStyle = colors.cream + "d0";
-      ctx.strokeText(m.name, Math.round(px - tw / 2), Math.round(py + 4 * g));
+      ctx.strokeText(m.name, x, y);
       ctx.fillStyle = sel || hov ? colors.gold : colors.ink;
-      ctx.fillText(m.name, Math.round(px - tw / 2), Math.round(py + 4 * g));
+      ctx.fillText(m.name, x, y);
       ctx.font = `${10.5 * g}px ${opts.family}`;
       continue;
     }
